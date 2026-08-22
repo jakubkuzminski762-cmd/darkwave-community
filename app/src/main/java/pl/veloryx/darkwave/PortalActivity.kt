@@ -10,13 +10,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class PortalActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private var loaded = false
-    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { loadPortal() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,7 +25,12 @@ class PortalActivity : ComponentActivity() {
             override fun handleOnBackPressed() { if (webView.canGoBack()) webView.goBack() else finish() }
         })
         val missing = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA).filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) loadPortal() else permissions.launch(missing.toTypedArray())
+        if (missing.isEmpty()) loadPortal() else ActivityCompat.requestPermissions(this, missing.toTypedArray(), MEDIA_PERMISSION_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == MEDIA_PERMISSION_REQUEST) loadPortal()
     }
 
     private fun loadPortal() {
@@ -52,5 +56,9 @@ class PortalActivity : ComponentActivity() {
     override fun onDestroy() {
         webView.stopLoading(); webView.destroy()
         super.onDestroy()
+    }
+
+    companion object {
+        private const val MEDIA_PERMISSION_REQUEST = 218
     }
 }
