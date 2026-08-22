@@ -1,9 +1,9 @@
 {
-  "versionCode": 5,
-  "versionName": "0.3.0-alpha",
+  "versionCode": 4,
+  "versionName": "0.2.2-alpha",
   "apkUrl": "https://veloryx.pl/downloads/darkwave-community.apk",
-  "sha256": "1c6299a7fe9baded666b8931450e896ea83be0a71bd3871a4d4d0234b21d2874",
+  "sha256": "92ea18bc5f8d27674243739b55c1483ee82b2978151039ed8f1ff25036d832b0",
   "required": false,
-  "notesEn": "Native voice and video calls now work inside the app. This release also adds call controls, visible muted/restricted states and a completed Polish interface audit.",
-  "notesPl": "Rozmowy głosowe i wideo działają teraz natywnie w aplikacji. Dodano też sterowanie rozmową, widoczne stany wyciszenia/ograniczenia i uzupełniono polskie tłumaczenia."
+  "notesEn": "Chat messages, saved language, session startup and profile avatars are fixed. Future releases can now be installed from inside the app.",
+  "notesPl": "Naprawiono wiadomości czatu, zapamiętywanie języka, start sesji i awatary. Kolejne wersje będzie można instalować bezpośrednio z aplikacji."
 }
