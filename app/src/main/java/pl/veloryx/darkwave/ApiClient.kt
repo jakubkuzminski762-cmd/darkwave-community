@@ -170,6 +170,36 @@ class ApiClient(context: Context) {
         return ApiResult(result.value != null, result.message, result.status)
     }
 
+    suspend fun pollCall(afterSignalId: Long = 0, conversationId: Long? = null): ApiResult<CallEnvelope> {
+        val query = buildList {
+            if (afterSignalId > 0) add("after=$afterSignalId")
+            if (conversationId != null) add("conversationId=$conversationId")
+        }.joinToString("&")
+        val result = request("/api/chat/call${if (query.isBlank()) "" else "?$query"}")
+        val json = result.value ?: return ApiResult(message = result.message, status = result.status)
+        return ApiResult(CallEnvelope(json.optJSONObject("call")?.toCall()), result.message, result.status)
+    }
+
+    suspend fun callAction(
+        action: String,
+        callId: Long? = null,
+        conversationId: Long? = null,
+        mode: String? = null,
+        targetUserId: Long? = null,
+        signalType: String? = null,
+        signalPayload: JSONObject? = null,
+    ): ApiResult<Boolean> {
+        val payload = JSONObject().put("action", action)
+        callId?.let { payload.put("callId", it) }
+        conversationId?.let { payload.put("conversationId", it) }
+        mode?.let { payload.put("mode", it) }
+        targetUserId?.let { payload.put("targetUserId", it) }
+        signalType?.let { payload.put("type", it) }
+        signalPayload?.let { payload.put("payload", it) }
+        val result = request("/api/chat/call", "POST", payload)
+        return ApiResult(result.value != null, result.message, result.status)
+    }
+
     suspend fun markRead(conversationId: Long) { request("/api/chat/read", "POST", JSONObject().put("conversationId", conversationId)) }
 
     suspend fun members(query: String): ApiResult<List<Profile>> {
@@ -250,6 +280,44 @@ private fun JSONObject.toForumThread() = ForumThread(
     id = optLong("id"), category = optString("category"), titleEn = optString("titleEn"), titlePl = optString("titlePl"),
     bodyEn = optString("bodyEn"), bodyPl = optString("bodyPl"), pinned = optBoolean("isPinned"), locked = optBoolean("isLocked"),
     author = optString("author"), createdAt = optString("createdAt"),
+)
+
+private fun JSONObject.toCall(): ChatCall = ChatCall(
+    id = optLong("id"),
+    conversationId = optLong("conversationId"),
+    conversationTitle = nullableString("conversationTitle") ?: "Private channel",
+    mode = optString("mode", "audio"),
+    status = optString("status", "ringing"),
+    initiatorUserId = optLong("initiatorUserId"),
+    viewerUserId = optLong("viewerUserId"),
+    createdAt = nullableString("createdAt") ?: "",
+    answeredAt = nullableString("answeredAt"),
+    endedAt = nullableString("endedAt"),
+    participants = optJSONArray("participants").toList { item ->
+        CallParticipant(
+            userId = item.optLong("userId"),
+            username = item.nullableString("username") ?: "Participant",
+            avatarUrl = item.nullableString("avatarUrl")?.let { if (it.startsWith("http")) it else "https://veloryx.pl${if (it.startsWith("/")) it else "/$it"}" },
+            status = item.optString("status", "ringing"),
+        )
+    },
+    signals = optJSONArray("signals").toList { item ->
+        CallSignal(
+            id = item.optLong("id"),
+            fromUserId = item.optLong("fromUserId"),
+            type = item.optString("type"),
+            payload = item.optJSONObject("payload") ?: JSONObject(),
+        )
+    },
+    iceServers = optJSONArray("iceServers").toList { item ->
+        val urlsValue = item.opt("urls")
+        val urls = when (urlsValue) {
+            is JSONArray -> buildList { for (index in 0 until urlsValue.length()) urlsValue.optString(index).takeIf { it.isNotBlank() }?.let(::add) }
+            is String -> listOf(urlsValue).filter { it.isNotBlank() }
+            else -> emptyList()
+        }
+        CallIceServer(urls, item.nullableString("username") ?: "", item.nullableString("credential") ?: "")
+    }.filter { it.urls.isNotEmpty() },
 )
 
 private inline fun <T> JSONArray?.toList(transform: (JSONObject) -> T): List<T> {

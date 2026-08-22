@@ -36,9 +36,11 @@ data class AppUiState(
     val appUpdate: AppUpdate? = null,
 )
 
-class AppViewModel(private val api: ApiClient) : ViewModel() {
+class AppViewModel(private val api: ApiClient, private val calls: NativeCallManager) : ViewModel() {
     private val _state = MutableStateFlow(AppUiState(language = api.savedLanguage()))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
+    val callState: StateFlow<NativeCallState> = calls.state
+    val callEglContext get() = calls.eglContext
     private var messagePoll: Job? = null
     private var inboxPoll: Job? = null
 
@@ -130,6 +132,7 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     }
 
     private fun afterLogin() {
+        calls.startPolling()
         refreshInbox()
         loadForum()
         inboxPoll?.cancel()
@@ -146,7 +149,10 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun refreshInbox() {
         viewModelScope.launch {
             val result = api.inbox()
-            result.value?.let { _state.value = _state.value.copy(inbox = it) }
+            result.value?.let { inbox ->
+                val selected = _state.value.selected?.let { current -> inbox.conversations.firstOrNull { it.id == current.id } ?: current }
+                _state.value = _state.value.copy(inbox = inbox, selected = selected)
+            }
         }
     }
 
@@ -209,6 +215,16 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
         viewModelScope.launch {
             val result = api.chatAction(action, conversation.id, messageId, emoji, details, theme, if (action == "report") conversation.friend?.username else null)
             if (result.value != true) return@launch notice(result.message ?: t("Action unavailable.", "Operacja jest niedostępna."), true)
+            if (action == "toggle-mute") {
+                val changed = conversation.copy(muted = !conversation.muted)
+                _state.value = _state.value.copy(selected = changed)
+                notice(if (changed.muted) t("Conversation notifications muted.", "Powiadomienia rozmowy zostały wyciszone.") else t("Conversation notifications enabled.", "Powiadomienia rozmowy zostały włączone."), false)
+            }
+            if (action == "toggle-restrict") {
+                val changed = conversation.copy(restricted = !conversation.restricted)
+                _state.value = _state.value.copy(selected = changed)
+                notice(if (changed.restricted) t("User restricted.", "Użytkownik został ograniczony.") else t("Restriction removed.", "Ograniczenie zostało cofnięte."), false)
+            }
             if (action in listOf("delete-conversation", "remove-friend", "block", "leave-group")) {
                 _state.value = _state.value.copy(selected = null, messages = emptyList())
                 messagePoll?.cancel()
@@ -244,7 +260,7 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
 
     fun logout() {
         viewModelScope.launch {
-            api.logout(); messagePoll?.cancel(); inboxPoll?.cancel()
+            api.logout(); messagePoll?.cancel(); inboxPoll?.cancel(); calls.stopPolling()
             _state.value = AppUiState(splash = false, language = _state.value.language)
             loadCaptcha()
         }
@@ -253,10 +269,23 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     private fun busy(value: Boolean) { _state.value = _state.value.copy(loading = value, notice = null) }
     private fun notice(message: String, error: Boolean) { _state.value = _state.value.copy(loading = false, notice = message, noticeError = error) }
     fun clearNotice() { _state.value = _state.value.copy(notice = null) }
+    fun startCall(mode: String) { _state.value.selected?.let { calls.startCall(it.id, mode) } }
+    fun answerCall() = calls.answer()
+    fun declineCall() = calls.decline()
+    fun endCall() = calls.end()
+    fun toggleCallMicrophone() = calls.toggleMicrophone()
+    fun toggleCallCamera() = calls.toggleCamera()
+    fun toggleCallSpeaker() = calls.toggleSpeaker()
+    fun callPermissionDenied() = calls.permissionDenied()
     private fun t(en: String, pl: String) = if (_state.value.language == "pl") pl else en
 
-    class Factory(private val api: ApiClient) : ViewModelProvider.Factory {
+    override fun onCleared() {
+        calls.stopPolling()
+        super.onCleared()
+    }
+
+    class Factory(private val api: ApiClient, private val calls: NativeCallManager) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = AppViewModel(api) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AppViewModel(api, calls) as T
     }
 }

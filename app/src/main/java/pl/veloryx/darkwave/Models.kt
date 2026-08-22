@@ -1,5 +1,7 @@
 package pl.veloryx.darkwave
 
+import org.json.JSONObject
+
 data class Profile(
     val username: String,
     val email: String = "",
@@ -90,6 +92,44 @@ data class AppUpdate(
     val notesPl: String = "Nowa wersja Darkwave Community jest gotowa.",
     val required: Boolean = false,
 )
+
+data class CallParticipant(
+    val userId: Long,
+    val username: String,
+    val avatarUrl: String? = null,
+    val status: String,
+)
+
+data class CallSignal(
+    val id: Long,
+    val fromUserId: Long,
+    val type: String,
+    val payload: JSONObject,
+)
+
+data class CallIceServer(
+    val urls: List<String>,
+    val username: String = "",
+    val credential: String = "",
+)
+
+data class ChatCall(
+    val id: Long,
+    val conversationId: Long,
+    val conversationTitle: String,
+    val mode: String,
+    val status: String,
+    val initiatorUserId: Long,
+    val viewerUserId: Long,
+    val createdAt: String,
+    val answeredAt: String? = null,
+    val endedAt: String? = null,
+    val participants: List<CallParticipant> = emptyList(),
+    val signals: List<CallSignal> = emptyList(),
+    val iceServers: List<CallIceServer> = emptyList(),
+)
+
+data class CallEnvelope(val call: ChatCall?)
 data class Inbox(val conversations: List<Conversation>, val requests: List<FriendRequest>)
 data class ApiResult<T>(val value: T? = null, val message: String? = null, val status: Int = 0) {
     val ok: Boolean get() = value != null && status in 200..299
