@@ -1,0 +1,2 @@
+-keep class pl.veloryx.darkwave.** { *; }
+-dontwarn org.conscrypt.**
