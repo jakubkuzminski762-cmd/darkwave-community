@@ -197,7 +197,7 @@ private fun AuthScreen(state: AppUiState, model: AppViewModel) {
 }
 
 @Composable
-private fun AuthTab(label: String, active: Boolean, onClick: () -> Unit) {
+private fun RowScope.AuthTab(label: String, active: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.weight(1f).clickable(onClick = onClick).background(if (active) SignalRed else Ink).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center,
