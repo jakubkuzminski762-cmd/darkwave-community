@@ -36,6 +36,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -58,6 +59,7 @@ import coil.compose.AsyncImage
 import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val model: AppViewModel by viewModels {
@@ -82,15 +84,70 @@ class MainActivity : ComponentActivity() {
 private fun DarkwaveApp(model: AppViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
     Surface(Modifier.fillMaxSize(), color = Ink) {
-        AnimatedContent(
-            targetState = when { state.splash -> "splash"; state.profile == null -> "auth"; else -> "home" },
-            transitionSpec = { (fadeIn() + slideInHorizontally { it / 8 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 8 }) },
-            label = "darkwave-screen",
-        ) { page ->
-            when (page) {
-                "splash" -> Splash()
-                "auth" -> AuthScreen(state, model)
-                else -> HomeScreen(state, model)
+        Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = when { state.splash -> "splash"; state.profile == null -> "auth"; else -> "home" },
+                transitionSpec = { (fadeIn() + slideInHorizontally { it / 8 }) togetherWith (fadeOut() + slideOutHorizontally { -it / 8 }) },
+                label = "darkwave-screen",
+            ) { page ->
+                when (page) {
+                    "splash" -> Splash()
+                    "auth" -> AuthScreen(state, model)
+                    else -> HomeScreen(state, model)
+                }
+            }
+            state.appUpdate?.let { UpdatePrompt(it, state.language, model::dismissUpdate) }
+        }
+    }
+}
+
+@Composable
+private fun UpdatePrompt(update: AppUpdate, language: String, dismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember(update.versionCode) { mutableStateOf(false) }
+    var error by remember(update.versionCode) { mutableStateOf<String?>(null) }
+    val pl = language == "pl"
+
+    Dialog(onDismissRequest = { if (!update.required && !downloading) dismiss() }) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().border(1.dp, SignalGold, CutCornerShape(topEnd = 28.dp, bottomStart = 28.dp)),
+            color = Panel,
+            shape = CutCornerShape(topEnd = 28.dp, bottomStart = 28.dp),
+            tonalElevation = 12.dp,
+        ) {
+            Column(Modifier.padding(22.dp)) {
+                Text("DW_UPDATE / ${update.versionName}", color = SignalGold, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(if (pl) "AKTUALIZACJA GOTOWA" else "UPDATE READY", color = Bone, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 10.dp))
+                Text(if (pl) update.notesPl else update.notesEn, color = Muted, fontSize = 11.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 12.dp))
+                if (error != null) Text(error.orEmpty(), color = SignalRed, fontSize = 9.sp, lineHeight = 14.sp, modifier = Modifier.padding(top = 12.dp))
+                if (downloading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 18.dp), color = SignalGold, trackColor = Ink)
+                Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!update.required) OutlinedButton(onClick = dismiss, enabled = !downloading, modifier = Modifier.weight(1f)) {
+                        Text(if (pl) "PÓŹNIEJ" else "LATER", fontSize = 9.sp)
+                    }
+                    Button(
+                        onClick = {
+                            if (!UpdateInstaller.canInstallPackages(context)) {
+                                UpdateInstaller.openInstallPermission(context)
+                                error = if (pl) "Zezwól aplikacji Darkwave na instalowanie aktualizacji, wróć tutaj i naciśnij ponownie." else "Allow Darkwave to install updates, return here and press again."
+                            } else {
+                                scope.launch {
+                                    downloading = true
+                                    error = null
+                                    runCatching { UpdateInstaller.download(context, update) }
+                                        .onSuccess { UpdateInstaller.install(context, it) }
+                                        .onFailure { error = if (pl) "Nie udało się pobrać aktualizacji. Spróbuj ponownie." else "The update could not be downloaded. Try again." }
+                                    downloading = false
+                                }
+                            }
+                        },
+                        enabled = !downloading,
+                        modifier = Modifier.weight(1.25f),
+                        colors = ButtonDefaults.buttonColors(containerColor = SignalGold, contentColor = Ink),
+                    ) { Text(if (downloading) (if (pl) "POBIERANIE…" else "DOWNLOADING…") else (if (pl) "AKTUALIZUJ" else "UPDATE"), fontSize = 9.sp, fontWeight = FontWeight.Black) }
+                }
+                Text(if (pl) "Android poprosi o jedno potwierdzenie instalacji." else "Android will request one installation confirmation.", color = Muted.copy(alpha = .7f), fontSize = 8.sp, modifier = Modifier.padding(top = 12.dp))
             }
         }
     }

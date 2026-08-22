@@ -81,6 +81,15 @@ data class ForumThread(
 )
 
 data class Captcha(val id: String, val question: String)
+data class AppUpdate(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val sha256: String = "",
+    val notesEn: String = "A new Darkwave Community build is ready.",
+    val notesPl: String = "Nowa wersja Darkwave Community jest gotowa.",
+    val required: Boolean = false,
+)
 data class Inbox(val conversations: List<Conversation>, val requests: List<FriendRequest>)
 data class ApiResult<T>(val value: T? = null, val message: String? = null, val status: Int = 0) {
     val ok: Boolean get() = value != null && status in 200..299

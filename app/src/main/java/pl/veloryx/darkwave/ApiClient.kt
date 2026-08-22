@@ -64,7 +64,8 @@ class ApiClient(context: Context) {
 
     private suspend fun request(path: String, method: String = "GET", payload: JSONObject? = null): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         try {
-            val builder = Request.Builder().url(base + path).header("X-DW-Request", "account-form").header("Accept", "application/json")
+            val url = if (path.startsWith("https://")) path else base + path
+            val builder = Request.Builder().url(url).header("X-DW-Request", "account-form").header("Accept", "application/json")
             when (method) {
                 "POST" -> builder.post((payload ?: JSONObject()).toString().toRequestBody(jsonType))
                 else -> builder.get()
@@ -190,6 +191,26 @@ class ApiClient(context: Context) {
 
     suspend fun registerPushToken(token: String) {
         request("/api/mobile/push/register", "POST", JSONObject().put("token", token).put("platform", "android"))
+    }
+
+    suspend fun latestUpdate(): ApiResult<AppUpdate> {
+        val result = request("https://raw.githubusercontent.com/jakubkuzminski762-cmd/darkwave-community/main/android-latest.json")
+        val json = result.value ?: return ApiResult(message = result.message, status = result.status)
+        val versionCode = json.optInt("versionCode")
+        val apkUrl = json.nullableString("apkUrl")
+        if (versionCode <= 0 || apkUrl == null) return ApiResult(message = "Invalid update manifest", status = result.status)
+        return ApiResult(
+            value = AppUpdate(
+                versionCode = versionCode,
+                versionName = json.nullableString("versionName") ?: versionCode.toString(),
+                apkUrl = apkUrl,
+                sha256 = json.nullableString("sha256") ?: "",
+                notesEn = json.nullableString("notesEn") ?: "A new Darkwave Community build is ready.",
+                notesPl = json.nullableString("notesPl") ?: "Nowa wersja Darkwave Community jest gotowa.",
+                required = json.optBoolean("required"),
+            ),
+            status = result.status,
+        )
     }
 }
 

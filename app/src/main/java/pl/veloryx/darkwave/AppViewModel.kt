@@ -33,6 +33,7 @@ data class AppUiState(
     val messages: List<ChatMessage> = emptyList(),
     val searchResults: List<Profile> = emptyList(),
     val forum: List<ForumThread> = emptyList(),
+    val appUpdate: AppUpdate? = null,
 )
 
 class AppViewModel(private val api: ApiClient) : ViewModel() {
@@ -42,6 +43,7 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     private var inboxPoll: Job? = null
 
     init {
+        viewModelScope.launch { checkForUpdate() }
         viewModelScope.launch {
             delay(1050)
             val session = api.session()
@@ -53,6 +55,16 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
                 loadCaptcha()
             }
         }
+    }
+
+    private suspend fun checkForUpdate() {
+        api.latestUpdate().value
+            ?.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
+            ?.let { _state.value = _state.value.copy(appUpdate = it) }
+    }
+
+    fun dismissUpdate() {
+        if (_state.value.appUpdate?.required != true) _state.value = _state.value.copy(appUpdate = null)
     }
 
     fun setLanguage(language: String) {
