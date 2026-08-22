@@ -100,7 +100,7 @@ private fun DarkwaveApp(model: AppViewModel) {
                 label = "darkwave-screen",
             ) { page ->
                 when (page) {
-                    "splash" -> Splash()
+                    "splash" -> Splash(state.language)
                     "auth" -> AuthScreen(state, model)
                     else -> HomeScreen(state, model)
                 }
@@ -163,7 +163,7 @@ private fun NativeCallOverlay(callState: NativeCallState, language: String, mode
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("SECURE / LIVE CHANNEL", color = SignalGold, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                        Text(if (pl) "BEZPIECZNY / AKTYWNY KANAŁ" else "SECURE / LIVE CHANNEL", color = SignalGold, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                         Text(if (video) (if (pl) "WIDEO" else "VIDEO") else (if (pl) "GŁOS" else "VOICE"), color = Muted, fontSize = 8.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 3.dp))
                     }
                     if (elapsedSeconds > 0) Text(formatCallDuration(elapsedSeconds), color = SignalGold, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
@@ -316,7 +316,7 @@ private fun UpdatePrompt(update: AppUpdate, language: String, dismiss: () -> Uni
 }
 
 @Composable
-private fun Splash() {
+private fun Splash(language: String) {
     Box(
         Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF4A170F), Ink), radius = 900f)).padding(28.dp),
     ) {
@@ -331,7 +331,7 @@ private fun Splash() {
                 color = SignalGold, trackColor = PanelRaised,
             )
             Spacer(Modifier.height(12.dp))
-            Text("CONNECTING TO CHANNEL 02:17", color = Muted, fontSize = 8.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp)
+            Text(if (language == "pl") "ŁĄCZENIE Z KANAŁEM 02:17" else "CONNECTING TO CHANNEL 02:17", color = Muted, fontSize = 8.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp)
         }
     }
 }
@@ -361,7 +361,7 @@ private fun AuthScreen(state: AppUiState, model: AppViewModel) {
                 Row(Modifier.fillMaxWidth().widthIn(max = 520.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("DARKWAVE", color = Bone, fontWeight = FontWeight.Black, fontSize = 24.sp)
-                        Text("MOBILE ACCESS / 02:17", color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 8.sp)
+                        Text(t("MOBILE ACCESS / 02:17", "DOSTĘP MOBILNY / 02:17"), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 8.sp)
                     }
                     LanguageToggle(state.language, model::setLanguage)
                 }
@@ -378,7 +378,7 @@ private fun AuthScreen(state: AppUiState, model: AppViewModel) {
                         AuthTab(t("CREATE ACCOUNT", "NOWE KONTO"), state.authMode == AuthMode.REGISTER) { model.setAuthMode(AuthMode.REGISTER) }
                     }
                     Spacer(Modifier.height(24.dp))
-                    Text("DW_IDENTITY / PRIVATE CHANNEL", color = SignalGold, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text(t("DW_IDENTITY / PRIVATE CHANNEL", "DW_TOŻSAMOŚĆ / PRYWATNY KANAŁ"), color = SignalGold, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                     Text(
                         when (state.authMode) { AuthMode.REGISTER -> t("JOIN THE SIGNAL.", "DOŁĄCZ DO SYGNAŁU."); AuthMode.TWO_FACTOR -> t("SECOND SIGNAL.", "DRUGI SYGNAŁ."); else -> t("WELCOME BACK.", "WITAJ PONOWNIE.") },
                         color = Bone, fontSize = 38.sp, fontWeight = FontWeight.Black, lineHeight = 38.sp,
@@ -516,7 +516,7 @@ private fun TopBar(state: AppUiState, model: AppViewModel) {
         Box(Modifier.size(38.dp).background(SignalRed, CutCornerShape(topEnd = 13.dp)), contentAlignment = Alignment.Center) { Text("DW", color = Bone, fontWeight = FontWeight.Black, fontSize = 12.sp) }
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text("DARKWAVE", color = Bone, fontWeight = FontWeight.Black, fontSize = 18.sp)
-            Text("COMMUNITY / LIVE", color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 7.sp)
+            Text(tr(state, "COMMUNITY / LIVE", "SPOŁECZNOŚĆ / AKTYWNA"), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 7.sp)
         }
         LanguageToggle(state.language, model::setLanguage)
     }
@@ -558,7 +558,7 @@ private fun RowScope.NavItem(icon: String, label: String, active: Boolean, badge
 @Composable
 private fun ChatsScreen(state: AppUiState, model: AppViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { SectionTitle("PRIVATE CHANNEL", tr(state, "MESSAGES", "WIADOMOŚCI")) }
+        item { SectionTitle(tr(state, "PRIVATE CHANNEL", "PRYWATNY KANAŁ"), tr(state, "MESSAGES", "WIADOMOŚCI")) }
         if (state.inbox.conversations.isEmpty()) item { EmptyState("◌", tr(state, "NO CONVERSATIONS", "BRAK ROZMÓW"), tr(state, "Add a friend to start a secure channel.", "Dodaj znajomego, aby rozpocząć rozmowę.")) }
         items(state.inbox.conversations, key = { it.id }) { conversation -> ConversationRow(conversation, state.language) { model.selectConversation(conversation) } }
     }
@@ -733,7 +733,7 @@ private fun FriendsScreen(state: AppUiState, model: AppViewModel) {
     val incoming = state.inbox.requests.filter { it.direction == "incoming" }
     val friends = state.inbox.conversations.filter { it.kind == "direct" }.mapNotNull { it.friend }.distinctBy { it.username }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        item { SectionTitle("COMMUNITY INDEX", tr(state, "FRIENDS", "ZNAJOMI")) }
+        item { SectionTitle(tr(state, "COMMUNITY INDEX", "KATALOG SPOŁECZNOŚCI"), tr(state, "FRIENDS", "ZNAJOMI")) }
         item {
             OutlinedTextField(
                 query, { query = it; model.search(it) }, Modifier.fillMaxWidth(), singleLine = true,
@@ -796,12 +796,12 @@ private fun RowScope.StatusChip(icon: ImageVector, label: String, color: Color) 
 private fun ForumScreen(state: AppUiState) {
     val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SectionTitle("COMMUNITY SIGNAL", "FORUM") }
+        item { SectionTitle(tr(state, "COMMUNITY SIGNAL", "SYGNAŁ SPOŁECZNOŚCI"), "FORUM") }
         item { Button(onClick = { openWeb(context, "https://veloryx.pl/forum", state.language) }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = SignalGold, contentColor = Ink), shape = CutCornerShape(topEnd = 14.dp)) { Icon(Icons.Rounded.Forum, null); Spacer(Modifier.width(8.dp)); Text(tr(state, "OPEN FULL FORUM TOOLS", "OTWÓRZ PEŁNE FORUM"), fontWeight = FontWeight.Black, fontSize = 9.sp) } }
         if (state.forum.isEmpty()) item { EmptyState("≡", tr(state, "NO THREADS", "BRAK WĄTKÓW"), tr(state, "The channel is silent.", "Kanał jest cichy.")) }
         items(state.forum, key = { it.id }) { thread ->
             Column(Modifier.fillMaxWidth().border(1.dp, Line, CutCornerShape(topEnd = 18.dp)).background(Brush.linearGradient(listOf(PanelRaised, Ink))).padding(15.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(thread.category.uppercase(), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 8.sp); Text(if (thread.pinned) tr(state, "PINNED", "PRZYPIĘTY") else tr(state, "LIVE", "AKTYWNY"), color = if (thread.pinned) SignalRed else Muted, fontSize = 7.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(forumCategory(thread.category, state.language).uppercase(), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 8.sp); Text(if (thread.pinned) tr(state, "PINNED", "PRZYPIĘTY") else tr(state, "LIVE", "AKTYWNY"), color = if (thread.pinned) SignalRed else Muted, fontSize = 7.sp) }
                 Text(if (state.language == "pl") thread.titlePl.ifBlank { thread.titleEn } else thread.titleEn.ifBlank { thread.titlePl }, color = Bone, fontSize = 23.sp, fontWeight = FontWeight.Black, lineHeight = 24.sp, modifier = Modifier.padding(vertical = 10.dp))
                 Text(if (state.language == "pl") thread.bodyPl.ifBlank { thread.bodyEn } else thread.bodyEn.ifBlank { thread.bodyPl }, color = Muted, fontSize = 12.sp, lineHeight = 18.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
                 HorizontalDivider(Modifier.padding(vertical = 11.dp), color = Line)
@@ -816,7 +816,7 @@ private fun ProfileScreen(state: AppUiState, model: AppViewModel) {
     val context = LocalContext.current
     val profile = state.profile ?: return
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { SectionTitle("DW_IDENTITY / PRIVATE", tr(state, "YOUR PROFILE", "TWÓJ PROFIL")) }
+        item { SectionTitle(tr(state, "DW_IDENTITY / PRIVATE", "DW_TOŻSAMOŚĆ / PRYWATNA"), tr(state, "YOUR PROFILE", "TWÓJ PROFIL")) }
         item {
             Column(Modifier.fillMaxWidth().border(1.dp, SignalGold, CutCornerShape(topEnd = 28.dp, bottomStart = 28.dp)).background(Brush.radialGradient(listOf(Color(0xFF42170F), Panel), radius = 700f)).padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -834,7 +834,7 @@ private fun ProfileScreen(state: AppUiState, model: AppViewModel) {
         }
         item { SettingsRow("⚙", tr(state, "ACCOUNT SETTINGS", "USTAWIENIA KONTA"), profile.email) { openWeb(context, "https://veloryx.pl/panel", state.language) } }
         item { SettingsRow("◎", tr(state, "PUBLIC PROFILE", "PROFIL PUBLICZNY"), "veloryx.pl/u/${profile.username}") { openWeb(context, "https://veloryx.pl/u/${profile.username}", state.language) } }
-        item { SettingsRow("?", tr(state, "HELP CENTER", "CENTRUM POMOCY"), "DARKWAVE SUPPORT") { openWeb(context, "https://veloryx.pl/pomoc", state.language) } }
+        item { SettingsRow("?", tr(state, "HELP CENTER", "CENTRUM POMOCY"), tr(state, "DARKWAVE SUPPORT", "POMOC DARKWAVE")) { openWeb(context, "https://veloryx.pl/pomoc", state.language) } }
         item { SettingsRow("×", tr(state, "SIGN OUT", "WYLOGUJ SIĘ"), tr(state, "Close this private channel", "Zamknij prywatny kanał"), danger = true) { model.logout() } }
     }
 }
@@ -888,6 +888,14 @@ private fun EmptyState(icon: String, title: String, copy: String) {
 private fun tr(state: AppUiState, en: String, pl: String) = if (state.language == "pl") pl else en
 private fun roleName(role: String, language: String) = when (role) { "owner" -> if (language == "pl") "Właściciel" else "Owner"; "admin" -> "Administrator"; "moderator" -> "Moderator"; else -> if (language == "pl") "Użytkownik" else "Member" }
 private fun roleColor(role: String?) = when (role) { "owner" -> SignalRed; "admin" -> SignalGold; "moderator" -> Color(0xFF83B7C6); else -> Color(0xFF8D7655) }
+private fun forumCategory(category: String, language: String) = if (language != "pl") category else when (category.lowercase()) {
+    "announcement", "announcements" -> "Ogłoszenia"
+    "development" -> "Rozwój"
+    "community" -> "Społeczność"
+    "support" -> "Pomoc"
+    "recruitment" -> "Rekrutacja"
+    else -> category
+}
 private fun chatBackground(theme: String): Brush = when (theme) {
     "inferno" -> Brush.radialGradient(listOf(Color(0xFF45160D), Color(0xFF110503)), radius = 900f)
     "cold-signal" -> Brush.verticalGradient(listOf(Color(0xFF09232B), Color(0xFF040E12)))
