@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -583,7 +585,16 @@ private fun Avatar(member: Profile?, unread: Int = 0, large: Boolean = false) {
     val size = if (large) 82.dp else 48.dp
     Box(Modifier.size(size)) {
         Box(Modifier.fillMaxSize().border(if (large) 3.dp else 1.dp, roleColor(member?.role), CircleShape).padding(if (large) 5.dp else 3.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0xFFF0D98B), SignalGold))), contentAlignment = Alignment.Center) {
-            Text(member?.username?.firstOrNull()?.uppercase() ?: "D", color = Ink, fontWeight = FontWeight.Black, fontSize = if (large) 25.sp else 16.sp)
+            if (!member?.avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = member?.avatarUrl,
+                    contentDescription = member?.username,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(member?.username?.firstOrNull()?.uppercase() ?: "D", color = Ink, fontWeight = FontWeight.Black, fontSize = if (large) 25.sp else 16.sp)
+            }
         }
         if (member?.isOnline == true) Box(Modifier.align(Alignment.BottomEnd).size(if (large) 17.dp else 12.dp).border(2.dp, Ink, CircleShape).background(Success, CircleShape))
         if (unread > 0) Badge(Modifier.align(Alignment.TopEnd), containerColor = SignalRed) { Text(if (unread > 9) "9+" else unread.toString()) }

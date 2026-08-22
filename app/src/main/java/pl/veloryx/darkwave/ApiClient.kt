@@ -46,6 +46,7 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
 class ApiClient(context: Context) {
     private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences("darkwave-preferences", Context.MODE_PRIVATE)
     private val cookieJar = PersistentCookieJar(context.applicationContext)
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -54,6 +55,12 @@ class ApiClient(context: Context) {
         .build()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val base = "https://veloryx.pl"
+
+    fun savedLanguage(): String = preferences.getString("language", "en")?.takeIf { it == "pl" } ?: "en"
+
+    fun saveLanguage(language: String) {
+        preferences.edit().putString("language", if (language == "pl") "pl" else "en").apply()
+    }
 
     private suspend fun request(path: String, method: String = "GET", payload: JSONObject? = null): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         try {
@@ -65,7 +72,7 @@ class ApiClient(context: Context) {
             client.newCall(builder.build()).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 val json = runCatching { JSONObject(body) }.getOrElse { JSONObject() }
-                ApiResult(if (response.isSuccessful) json else null, json.optString("message").ifBlank { null }, response.code)
+                ApiResult(if (response.isSuccessful) json else null, json.nullableString("message"), response.code)
             }
         } catch (error: Exception) {
             ApiResult(message = error.message ?: "Connection unavailable")
@@ -85,7 +92,7 @@ class ApiClient(context: Context) {
 
     suspend fun login(identifier: String, password: String, remember: Boolean, captcha: Captcha, answer: String): ApiResult<String> {
         val result = request("/api/auth/login", "POST", JSONObject().put("identifier", identifier).put("password", password).put("remember", remember).put("captchaId", captcha.id).put("captchaAnswer", answer))
-        val token = result.value?.optString("loginToken")?.takeIf { it.isNotBlank() }
+        val token = result.value?.nullableString("loginToken")
         return ApiResult(token ?: if (result.value != null) "ok" else null, result.message, result.status)
     }
 
@@ -147,7 +154,7 @@ class ApiClient(context: Context) {
             .header("X-DW-Request", "account-form").header("Accept", "application/json").post(body).build()
         client.newCall(request).execute().use { response ->
             val json = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { JSONObject() }
-            return ApiResult(if (response.isSuccessful) true else null, json.optString("message").ifBlank { null }, response.code)
+            return ApiResult(if (response.isSuccessful) true else null, json.nullableString("message"), response.code)
         }
     }
 
@@ -190,10 +197,10 @@ private fun JSONObject?.toProfile(): Profile {
     if (this == null) return Profile("Unknown")
     val progression = optJSONObject("progression")
     return Profile(
-        username = optString("username", "Unknown"), email = optString("email"), tag = optString("tag"), role = optString("role", "member"),
-        avatarUrl = optString("avatarUrl").takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else "https://veloryx.pl$it" },
+        username = optString("username", "Unknown"), email = nullableString("email") ?: "", tag = nullableString("tag") ?: "", role = optString("role", "member"),
+        avatarUrl = nullableString("avatarUrl")?.let { if (it.startsWith("http")) it else "https://veloryx.pl${if (it.startsWith("/")) it else "/$it"}" },
         isOnline = optBoolean("isOnline"), presenceMode = optString("presenceMode", "auto"),
-        lastActiveAt = optString("lastActiveAt").takeIf { it.isNotBlank() }, statusMessage = optString("statusMessage").takeIf { it.isNotBlank() },
+        lastActiveAt = nullableString("lastActiveAt"), statusMessage = nullableString("statusMessage"),
         level = progression?.optInt("level", 1) ?: 1, totalXp = progression?.optInt("totalXp", 0) ?: 0,
         relationship = optString("relationship", "none"),
         friendshipId = if (has("friendshipId") && !isNull("friendshipId")) optLong("friendshipId") else null,
@@ -202,19 +209,19 @@ private fun JSONObject?.toProfile(): Profile {
 }
 
 private fun JSONObject.toConversation() = Conversation(
-    id = optLong("id"), kind = optString("kind", "direct"), title = optString("title").takeIf { it.isNotBlank() },
-    friend = optJSONObject("friend")?.toProfile(), lastMessage = optString("lastMessage").takeIf { it.isNotBlank() },
-    lastMessageAt = optString("lastMessageAt").takeIf { it.isNotBlank() }, unreadCount = optInt("unreadCount"),
+    id = optLong("id"), kind = optString("kind", "direct"), title = nullableString("title"),
+    friend = optJSONObject("friend")?.toProfile(), lastMessage = nullableString("lastMessage"),
+    lastMessageAt = nullableString("lastMessageAt"), unreadCount = optInt("unreadCount"),
     muted = optBoolean("muted"), restricted = optBoolean("restricted"), theme = optString("theme", "nocturne"),
-    ownerUsername = optString("ownerUsername").takeIf { it.isNotBlank() },
+    ownerUsername = nullableString("ownerUsername"),
     participants = optJSONArray("participants").toList { it.toProfile() },
 )
 
 private fun JSONObject.toMessage() = ChatMessage(
     id = optLong("id"), mine = optBoolean("mine"), sender = optJSONObject("sender")?.toProfile(),
-    body = optString("body").takeIf { it.isNotBlank() }, createdAt = optString("createdAt"),
-    deliveredAt = optString("deliveredAt").takeIf { it.isNotBlank() }, readAt = optString("readAt").takeIf { it.isNotBlank() }, recalledAt = optString("recalledAt").takeIf { it.isNotBlank() },
-    attachment = optJSONObject("attachment")?.let { item -> Attachment(item.optLong("id"), item.optString("kind"), item.optString("name"), item.optString("mime"), item.optLong("size"), item.optString("url")) },
+    body = nullableString("body"), createdAt = optString("createdAt"),
+    deliveredAt = nullableString("deliveredAt"), readAt = nullableString("readAt"), recalledAt = nullableString("recalledAt"),
+    attachment = optJSONObject("attachment")?.let { item -> Attachment(item.optLong("id"), item.nullableString("kind") ?: "file", item.nullableString("name") ?: "attachment", item.nullableString("mime") ?: "application/octet-stream", item.optLong("size"), item.nullableString("url") ?: "") },
     reactions = optJSONArray("reactions").toList { item -> ChatReaction(item.optString("emoji"), item.optInt("count"), item.optBoolean("mine"), item.optJSONArray("users").toList { it.toProfile() }) },
 )
 
@@ -227,4 +234,9 @@ private fun JSONObject.toForumThread() = ForumThread(
 private inline fun <T> JSONArray?.toList(transform: (JSONObject) -> T): List<T> {
     if (this == null) return emptyList()
     return buildList { for (index in 0 until length()) optJSONObject(index)?.let { add(transform(it)) } }
+}
+
+private fun JSONObject.nullableString(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    return optString(key).trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
 }

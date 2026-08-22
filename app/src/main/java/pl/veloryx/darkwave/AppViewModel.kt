@@ -36,7 +36,7 @@ data class AppUiState(
 )
 
 class AppViewModel(private val api: ApiClient) : ViewModel() {
-    private val _state = MutableStateFlow(AppUiState())
+    private val _state = MutableStateFlow(AppUiState(language = api.savedLanguage()))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private var messagePoll: Job? = null
     private var inboxPoll: Job? = null
@@ -44,16 +44,22 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     init {
         viewModelScope.launch {
             delay(1050)
-            _state.value = _state.value.copy(splash = false)
             val session = api.session()
             if (session.value != null) {
-                _state.value = _state.value.copy(profile = session.value)
+                _state.value = _state.value.copy(splash = false, profile = session.value)
                 afterLogin()
-            } else loadCaptcha()
+            } else {
+                _state.value = _state.value.copy(splash = false)
+                loadCaptcha()
+            }
         }
     }
 
-    fun setLanguage(language: String) { _state.value = _state.value.copy(language = language) }
+    fun setLanguage(language: String) {
+        val normalized = if (language == "pl") "pl" else "en"
+        api.saveLanguage(normalized)
+        _state.value = _state.value.copy(language = normalized)
+    }
 
     fun setAuthMode(mode: AuthMode) {
         _state.value = _state.value.copy(authMode = mode, notice = null, loginToken = "")
