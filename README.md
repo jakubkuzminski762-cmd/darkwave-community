@@ -25,6 +25,8 @@ Add these repository Actions secrets before distributing an APK:
 
 The workflow always compiles a short-lived debug artifact. It produces the distributable `darkwave-community.apk` only when all four release-signing secrets exist. Keep the original keystore and passwords backed up: every future update must be signed with the same key.
 
+Production releases are built automatically from the protected signing secrets stored in GitHub Actions.
+
 ## Push delivery
 
 The Android client is ready to receive Firebase messages. Background delivery also needs a private Firebase service-account JSON on the PHP server plus a `/api/mobile/push/register` implementation. Never commit the service-account file to this public repository.
