@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Darkwave Community</string>
+    <string name="notification_channel_messages">Messages</string>
+    <string name="notification_channel_calls">Calls</string>
+</resources>
