@@ -1,5 +1,6 @@
 package pl.veloryx.darkwave
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 enum class AppTab { CHATS, FRIENDS, FORUM, PROFILE }
 enum class AuthMode { LOGIN, REGISTER, TWO_FACTOR }
@@ -37,6 +39,7 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private var messagePoll: Job? = null
+    private var inboxPoll: Job? = null
 
     init {
         viewModelScope.launch {
@@ -111,6 +114,10 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
     private fun afterLogin() {
         refreshInbox()
         loadForum()
+        inboxPoll?.cancel()
+        inboxPoll = viewModelScope.launch {
+            while (isActive) { delay(15_000); refreshInbox() }
+        }
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             viewModelScope.launch { api.registerPushToken(token) }
         }
@@ -160,6 +167,38 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
         }
     }
 
+    fun sendAttachment(uri: Uri, body: String = "") {
+        val conversation = _state.value.selected ?: return
+        viewModelScope.launch {
+            val result = api.upload(conversation.id, body.trim(), uri)
+            if (result.value == true) loadMessages(conversation.id)
+            else notice(result.message ?: t("Could not send the attachment.", "Nie udało się wysłać załącznika."), true)
+        }
+    }
+
+    fun sendRecording(file: File, body: String = "") {
+        val conversation = _state.value.selected ?: return
+        viewModelScope.launch {
+            val result = api.upload(conversation.id, body.trim(), file, "audio/mp4")
+            file.delete()
+            if (result.value == true) loadMessages(conversation.id)
+            else notice(result.message ?: t("Could not send the recording.", "Nie udało się wysłać nagrania."), true)
+        }
+    }
+
+    fun chatAction(action: String, messageId: Long? = null, emoji: String? = null, details: String? = null, theme: String? = null) {
+        val conversation = _state.value.selected ?: return
+        viewModelScope.launch {
+            val result = api.chatAction(action, conversation.id, messageId, emoji, details, theme, if (action == "report") conversation.friend?.username else null)
+            if (result.value != true) return@launch notice(result.message ?: t("Action unavailable.", "Operacja jest niedostępna."), true)
+            if (action in listOf("delete-conversation", "remove-friend", "block", "leave-group")) {
+                _state.value = _state.value.copy(selected = null, messages = emptyList())
+                messagePoll?.cancel()
+            } else loadMessages(conversation.id)
+            refreshInbox()
+        }
+    }
+
     fun search(query: String) {
         if (query.trim().length < 2) { _state.value = _state.value.copy(searchResults = emptyList()); return }
         viewModelScope.launch {
@@ -187,7 +226,7 @@ class AppViewModel(private val api: ApiClient) : ViewModel() {
 
     fun logout() {
         viewModelScope.launch {
-            api.logout(); messagePoll?.cancel()
+            api.logout(); messagePoll?.cancel(); inboxPoll?.cancel()
             _state.value = AppUiState(splash = false, language = _state.value.language)
             loadCaptcha()
         }

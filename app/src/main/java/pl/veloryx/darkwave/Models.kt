@@ -7,6 +7,8 @@ data class Profile(
     val role: String = "member",
     val avatarUrl: String? = null,
     val isOnline: Boolean = false,
+    val presenceMode: String = "auto",
+    val lastActiveAt: String? = null,
     val statusMessage: String? = null,
     val level: Int = 1,
     val totalXp: Int = 0,
@@ -23,6 +25,27 @@ data class Conversation(
     val lastMessage: String?,
     val lastMessageAt: String?,
     val unreadCount: Int,
+    val muted: Boolean = false,
+    val restricted: Boolean = false,
+    val theme: String = "nocturne",
+    val ownerUsername: String? = null,
+    val participants: List<Profile> = emptyList(),
+)
+
+data class Attachment(
+    val id: Long,
+    val kind: String,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val url: String,
+)
+
+data class ChatReaction(
+    val emoji: String,
+    val count: Int,
+    val mine: Boolean,
+    val users: List<Profile>,
 )
 
 data class ChatMessage(
@@ -34,6 +57,8 @@ data class ChatMessage(
     val deliveredAt: String?,
     val readAt: String?,
     val recalledAt: String?,
+    val attachment: Attachment? = null,
+    val reactions: List<ChatReaction> = emptyList(),
 )
 
 data class FriendRequest(

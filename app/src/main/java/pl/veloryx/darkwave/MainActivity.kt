@@ -4,10 +4,13 @@ import android.Manifest
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
@@ -20,6 +23,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +53,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.io.File
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 class MainActivity : ComponentActivity() {
     private val model: AppViewModel by viewModels {
@@ -250,7 +259,7 @@ private fun SignalButton(label: String, busy: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun HomeScreen(state: AppUiState, model: AppViewModel) {
-    Column(Modifier.fillMaxSize().background(Ink).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+    Column(Modifier.fillMaxSize().background(Ink).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).imePadding()) {
         TopBar(state, model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             AnimatedContent(state.selected?.id ?: state.tab, label = "app-tab") {
@@ -317,17 +326,18 @@ private fun ChatsScreen(state: AppUiState, model: AppViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { SectionTitle("PRIVATE CHANNEL", tr(state, "MESSAGES", "WIADOMOŚCI")) }
         if (state.inbox.conversations.isEmpty()) item { EmptyState("◌", tr(state, "NO CONVERSATIONS", "BRAK ROZMÓW"), tr(state, "Add a friend to start a secure channel.", "Dodaj znajomego, aby rozpocząć rozmowę.")) }
-        items(state.inbox.conversations, key = { it.id }) { conversation -> ConversationRow(conversation) { model.selectConversation(conversation) } }
+        items(state.inbox.conversations, key = { it.id }) { conversation -> ConversationRow(conversation, state.language) { model.selectConversation(conversation) } }
     }
 }
 
 @Composable
-private fun ConversationRow(conversation: Conversation, click: () -> Unit) {
+private fun ConversationRow(conversation: Conversation, language: String, click: () -> Unit) {
     val name = if (conversation.kind == "group") conversation.title ?: "GROUP CHANNEL" else conversation.friend?.username ?: "PRIVATE CHANNEL"
     Row(Modifier.fillMaxWidth().clickable(onClick = click).border(1.dp, Line, CutCornerShape(topEnd = 12.dp)).background(Brush.horizontalGradient(listOf(PanelRaised, Ink))).padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
         Avatar(conversation.friend, conversation.unreadCount)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(name, color = Bone, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (conversation.friend != null) Text(presenceText(conversation.friend, language), color = if (conversation.friend.isOnline) Success else Muted, fontSize = 7.sp)
             Text(conversation.lastMessage ?: "Start a conversation", color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text(conversation.lastMessageAt?.takeLast(8)?.take(5).orEmpty(), color = Muted, fontSize = 8.sp)
@@ -339,42 +349,121 @@ private fun ConversationScreen(state: AppUiState, model: AppViewModel) {
     val context = LocalContext.current
     val conversation = state.selected ?: return
     var draft by remember(conversation.id) { mutableStateOf("") }
+    var emojiOpen by remember(conversation.id) { mutableStateOf(false) }
+    var optionsOpen by remember(conversation.id) { mutableStateOf(false) }
+    var reportOpen by remember(conversation.id) { mutableStateOf(false) }
+    var themeOpen by remember(conversation.id) { mutableStateOf(false) }
+    var reportDetails by remember(conversation.id) { mutableStateOf("") }
+    var recorder by remember(conversation.id) { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember(conversation.id) { mutableStateOf<File?>(null) }
     val name = if (conversation.kind == "group") conversation.title ?: "GROUP CHANNEL" else conversation.friend?.username ?: "PRIVATE CHANNEL"
-    Column(Modifier.fillMaxSize()) {
+    fun beginRecording() {
+        if (recorder != null) return
+        runCatching {
+            val file = File.createTempFile("darkwave-voice-", ".m4a", context.cacheDir)
+            @Suppress("DEPRECATION")
+            val next = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
+            next.setAudioSource(MediaRecorder.AudioSource.MIC)
+            next.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            next.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            next.setAudioEncodingBitRate(96_000)
+            next.setAudioSamplingRate(44_100)
+            next.setOutputFile(file.absolutePath)
+            next.prepare(); next.start()
+            recordingFile = file; recorder = next
+        }.onFailure { model.clearNotice() }
+    }
+    val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) beginRecording() }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { model.sendAttachment(it, draft); draft = "" } }
+    DisposableEffect(conversation.id) {
+        onDispose { runCatching { recorder?.stop() }; recorder?.release(); recordingFile?.delete() }
+    }
+    fun toggleRecording() {
+        val active = recorder
+        if (active != null) {
+            runCatching { active.stop() }; active.release(); recorder = null
+            recordingFile?.let { model.sendRecording(it, draft); draft = "" }
+            recordingFile = null
+        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) beginRecording()
+        else recordPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    Column(Modifier.fillMaxSize().background(chatBackground(conversation.theme)).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
         Row(Modifier.fillMaxWidth().height(66.dp).background(Panel).border(1.dp, Line).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { model.selectConversation(null) }) { Text("←", color = Bone, fontSize = 22.sp) }
+            IconButton(onClick = { model.selectConversation(null) }) { Icon(Icons.Rounded.ArrowBack, null, tint = Bone) }
             Avatar(conversation.friend)
-            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(name, color = Bone, fontSize = 13.sp, fontWeight = FontWeight.Black); Text(if (conversation.friend?.isOnline == true) "ONLINE" else "PRIVATE CHANNEL", color = if (conversation.friend?.isOnline == true) Success else Muted, fontSize = 7.sp) }
-            TextButton(onClick = { openWeb(context, "https://veloryx.pl/wiadomosci?user=${conversation.friend?.username.orEmpty()}", state.language) }) { Text("CALL ↗", color = SignalGold, fontSize = 8.sp) }
+            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(name, color = Bone, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(if (conversation.friend != null) presenceText(conversation.friend, state.language) else "${conversation.participants.size} ${tr(state, "participants", "uczestników")}", color = if (conversation.friend?.isOnline == true) Success else Muted, fontSize = 7.sp) }
+            IconButton(onClick = { openWeb(context, "https://veloryx.pl/wiadomosci?user=${conversation.friend?.username.orEmpty()}", state.language) }) { Icon(Icons.Rounded.Phone, tr(state, "Call", "Zadzwoń"), tint = SignalGold) }
+            Box {
+                IconButton(onClick = { optionsOpen = true }) { Icon(Icons.Rounded.MoreVert, tr(state, "Conversation options", "Opcje rozmowy"), tint = Bone) }
+                DropdownMenu(optionsOpen, { optionsOpen = false }, modifier = Modifier.background(PanelRaised)) {
+                    DropdownMenuItem({ Text(tr(state, if (conversation.muted) "Unmute" else "Mute", if (conversation.muted) "Włącz dźwięk" else "Wycisz")) }, { optionsOpen = false; model.chatAction("toggle-mute") }, leadingIcon = { Icon(Icons.Rounded.VolumeOff, null) })
+                    DropdownMenuItem({ Text(tr(state, "Change chat theme", "Zmień motyw czatu")) }, { optionsOpen = false; themeOpen = true }, leadingIcon = { Icon(Icons.Rounded.Palette, null) })
+                    if (conversation.kind == "direct") DropdownMenuItem({ Text(tr(state, "Restrict / unrestrict", "Ogranicz / cofnij")) }, { optionsOpen = false; model.chatAction("toggle-restrict") }, leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
+                    DropdownMenuItem({ Text(tr(state, "Delete conversation", "Usuń rozmowę")) }, { optionsOpen = false; model.chatAction("delete-conversation") }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                    if (conversation.kind == "direct") {
+                        DropdownMenuItem({ Text(tr(state, "Remove friend", "Usuń znajomego")) }, { optionsOpen = false; model.chatAction("remove-friend") }, leadingIcon = { Icon(Icons.Rounded.PersonRemove, null) })
+                        DropdownMenuItem({ Text(tr(state, "Block user", "Zablokuj użytkownika")) }, { optionsOpen = false; model.chatAction("block") }, leadingIcon = { Icon(Icons.Rounded.Block, null) })
+                        DropdownMenuItem({ Text(tr(state, "Report user", "Zgłoś użytkownika")) }, { optionsOpen = false; reportOpen = true }, leadingIcon = { Icon(Icons.Rounded.Report, null) })
+                    }
+                    DropdownMenuItem({ Text(tr(state, "Open all chat tools", "Otwórz wszystkie narzędzia")) }, { optionsOpen = false; openWeb(context, "https://veloryx.pl/wiadomosci?user=${conversation.friend?.username.orEmpty()}", state.language) }, leadingIcon = { Icon(Icons.Rounded.OpenInNew, null) })
+                }
+            }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp), reverseLayout = true) {
-            items(state.messages.reversed(), key = { it.id }) { message -> MessageBubble(message, state) }
+            items(state.messages.reversed(), key = { it.id }) { message -> MessageBubble(message, state, model) }
         }
-        Row(Modifier.fillMaxWidth().background(Panel).border(1.dp, Line).windowInsetsPadding(WindowInsets.ime).padding(9.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(
-                value = draft, onValueChange = { draft = it }, modifier = Modifier.weight(1f), maxLines = 4,
-                placeholder = { Text(tr(state, "Write a message…", "Napisz wiadomość…"), color = Muted) },
-                shape = RoundedCornerShape(22.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SignalGold, unfocusedBorderColor = Line, focusedContainerColor = Ink, unfocusedContainerColor = Ink),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) { model.sendMessage(draft); draft = "" } }),
-            )
-            Spacer(Modifier.width(8.dp))
-            FloatingActionButton(onClick = { if (draft.isNotBlank()) { model.sendMessage(draft); draft = "" } }, containerColor = SignalGold, contentColor = Ink, modifier = Modifier.size(48.dp)) { Text("➤") }
+        Column(Modifier.fillMaxWidth().background(Panel).border(1.dp, Line).padding(9.dp)) {
+            AnimatedVisibility(emojiOpen) { Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) { listOf("😀","😂","😍","😮","😢","🔥","👍","❤️").forEach { emoji -> Text(emoji, fontSize = 23.sp, modifier = Modifier.clip(CircleShape).clickable { draft += emoji }.padding(4.dp)) } } }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                IconButton(onClick = { emojiOpen = !emojiOpen }) { Icon(Icons.Rounded.InsertEmoticon, tr(state, "Emoji", "Emotki"), tint = SignalGold) }
+                IconButton(onClick = { filePicker.launch(arrayOf("image/*", "audio/*", "application/pdf", "text/plain", "application/zip")) }) { Icon(Icons.Rounded.AttachFile, tr(state, "Attach file", "Dołącz plik"), tint = SignalGold) }
+                IconButton(onClick = ::toggleRecording) { Icon(if (recorder == null) Icons.Rounded.Mic else Icons.Rounded.Stop, tr(state, "Voice message", "Wiadomość głosowa"), tint = if (recorder == null) SignalGold else SignalRed) }
+                OutlinedTextField(
+                    value = draft, onValueChange = { draft = it }, modifier = Modifier.weight(1f), maxLines = 4,
+                    placeholder = { Text(tr(state, "Write a message…", "Napisz wiadomość…"), color = Muted) },
+                    shape = RoundedCornerShape(22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SignalGold, unfocusedBorderColor = Line, focusedContainerColor = Ink, unfocusedContainerColor = Ink),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) { model.sendMessage(draft); draft = "" } }),
+                )
+                Spacer(Modifier.width(6.dp))
+                FloatingActionButton(onClick = { if (draft.isNotBlank()) { model.sendMessage(draft); draft = "" } }, containerColor = SignalGold, contentColor = Ink, modifier = Modifier.size(48.dp)) { Icon(Icons.Rounded.Send, tr(state, "Send", "Wyślij")) }
+            }
         }
     }
+    if (reportOpen) AlertDialog(onDismissRequest = { reportOpen = false }, title = { Text(tr(state, "Report user", "Zgłoś użytkownika")) }, text = { OutlinedTextField(reportDetails, { reportDetails = it.take(1000) }, placeholder = { Text(tr(state, "Describe the problem", "Opisz problem")) }) }, confirmButton = { TextButton(onClick = { if (reportDetails.isNotBlank()) model.chatAction("report", details = reportDetails); reportOpen = false }) { Text(tr(state, "SEND REPORT", "WYŚLIJ ZGŁOSZENIE")) } }, dismissButton = { TextButton(onClick = { reportOpen = false }) { Text(tr(state, "CANCEL", "ANULUJ")) } })
+    if (themeOpen) AlertDialog(onDismissRequest = { themeOpen = false }, title = { Text(tr(state, "Chat theme", "Motyw czatu")) }, text = { Column { listOf("nocturne" to tr(state, "Nocturne Archive", "Archiwum Nocturne"), "inferno" to tr(state, "Inferno Relay", "Piekielny Przekaźnik"), "cold-signal" to tr(state, "Cold Signal", "Zimny Sygnał"), "violet-void" to tr(state, "Violet Void", "Fioletowa Pustka"), "ember-tape" to tr(state, "Ember Tape", "Taśma Żaru")).forEach { (key, label) -> TextButton(onClick = { model.chatAction("set-theme", theme = key); themeOpen = false }, modifier = Modifier.fillMaxWidth()) { Text(label, color = if (conversation.theme == key) SignalGold else Bone) } } } }, confirmButton = {})
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(message: ChatMessage, state: AppUiState) {
+private fun MessageBubble(message: ChatMessage, state: AppUiState, model: AppViewModel) {
+    var menuOpen by remember(message.id) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.mine) Arrangement.End else Arrangement.Start) {
+        if (message.recalledAt != null) {
+            Row(Modifier.widthIn(max = 280.dp).border(1.dp, Line, RoundedCornerShape(10.dp)).background(Panel.copy(alpha = .76f)).padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Undo, null, tint = Muted, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)); Column { Text(tr(state, "Message recalled", "Wiadomość cofnięta"), color = Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace); Text(messageTime(message.createdAt), color = Muted.copy(alpha = .65f), fontSize = 7.sp) }
+            }
+            return@Row
+        }
+        Box {
         Column(
-            Modifier.widthIn(max = 310.dp).clip(if (message.mine) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
+            Modifier.widthIn(max = 310.dp).combinedClickable(onClick = {}, onLongClick = { menuOpen = true }).clip(if (message.mine) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
                 .background(if (message.mine) Brush.linearGradient(listOf(Color(0xFF8F2B20), SignalRed)) else Brush.linearGradient(listOf(PanelRaised, Panel))).border(1.dp, if (message.mine) SignalRed else Line, RoundedCornerShape(16.dp)).padding(11.dp),
         ) {
             if (!message.mine && message.sender != null) Text(message.sender.username, color = SignalGold, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            Text(if (message.recalledAt != null) tr(state, "Message recalled", "Wiadomość cofnięta") else message.body.orEmpty(), color = Bone, fontSize = 13.sp, lineHeight = 18.sp)
-            Text(message.createdAt.takeLast(8).take(5) + if (message.mine) " · " + if (message.readAt != null) tr(state, "READ", "ODCZYTANO") else if (message.deliveredAt != null) tr(state, "DELIVERED", "DOSTARCZONO") else tr(state, "SENT", "WYSŁANO") else "", color = Bone.copy(alpha = .58f), fontSize = 7.sp, modifier = Modifier.align(Alignment.End))
+            if (!message.body.isNullOrBlank()) Text(callMessageText(message.body, state.language) ?: message.body, color = Bone, fontSize = 13.sp, lineHeight = 18.sp)
+            message.attachment?.let { attachment -> Row(Modifier.padding(top = 7.dp).border(1.dp, Bone.copy(alpha = .25f), RoundedCornerShape(10.dp)).padding(9.dp), verticalAlignment = Alignment.CenterVertically) { Icon(if (attachment.kind == "audio") Icons.Rounded.GraphicEq else if (attachment.kind == "image") Icons.Rounded.Image else Icons.Rounded.Description, null, tint = SignalGold); Spacer(Modifier.width(8.dp)); Column { Text(attachment.name, color = Bone, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${(attachment.size / 1024).coerceAtLeast(1)} KB", color = Muted, fontSize = 7.sp) } } }
+            if (message.reactions.isNotEmpty()) Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { message.reactions.forEach { reaction -> Surface(onClick = { model.chatAction("react", message.id, reaction.emoji) }, shape = CircleShape, color = if (reaction.mine) SignalGold.copy(alpha = .25f) else Ink.copy(alpha = .45f), border = androidx.compose.foundation.BorderStroke(1.dp, if (reaction.mine) SignalGold else Line)) { Text("${reaction.emoji} ${reaction.count}", fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)) } } }
+            Row(Modifier.align(Alignment.End).padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) { Text(messageTime(message.createdAt) + if (message.mine) " · " + if (message.readAt != null) tr(state, "READ", "ODCZYTANO") else if (message.deliveredAt != null) tr(state, "DELIVERED", "DOSTARCZONO") else tr(state, "SENT", "WYSŁANO") else "", color = Bone.copy(alpha = .58f), fontSize = 7.sp); IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(26.dp)) { Icon(Icons.Rounded.MoreHoriz, null, tint = Bone.copy(alpha = .72f), modifier = Modifier.size(16.dp)) } }
+        }
+            DropdownMenu(menuOpen, { menuOpen = false }, modifier = Modifier.background(PanelRaised)) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) { listOf("👍","❤️","😂","😮","🔥").forEach { emoji -> Text(emoji, fontSize = 21.sp, modifier = Modifier.clickable { model.chatAction("react", message.id, emoji); menuOpen = false }.padding(5.dp)) } }
+                HorizontalDivider(color = Line)
+                DropdownMenuItem({ Text(tr(state, "Delete for me", "Usuń u mnie")) }, { menuOpen = false; model.chatAction("delete-message", message.id) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                if (message.mine) DropdownMenuItem({ Text(tr(state, "Recall for everyone", "Cofnij u wszystkich")) }, { menuOpen = false; model.chatAction("recall-message", message.id) }, leadingIcon = { Icon(Icons.Rounded.Undo, null) })
+            }
         }
     }
 }
@@ -411,7 +500,7 @@ private fun FriendsScreen(state: AppUiState, model: AppViewModel) {
             } }
         } else {
             item { SmallLabel(tr(state, "YOUR CONTACTS", "TWOJE KONTAKTY")) }
-            items(friends, key = { "friend-${it.username}" }) { member -> PersonRow(member, state) { Text(if (member.isOnline) "ONLINE" else "OFFLINE", color = if (member.isOnline) Success else Muted, fontSize = 8.sp) } }
+            items(friends, key = { "friend-${it.username}" }) { member -> PersonRow(member, state) { Text(presenceText(member, state.language), color = if (member.isOnline) Success else Muted, fontSize = 8.sp) } }
         }
     }
 }
@@ -435,8 +524,10 @@ private fun MiniAction(label: String, danger: Boolean = false, click: () -> Unit
 
 @Composable
 private fun ForumScreen(state: AppUiState) {
+    val context = LocalContext.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("COMMUNITY SIGNAL", "FORUM") }
+        item { Button(onClick = { openWeb(context, "https://veloryx.pl/forum", state.language) }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = SignalGold, contentColor = Ink), shape = CutCornerShape(topEnd = 14.dp)) { Icon(Icons.Rounded.Forum, null); Spacer(Modifier.width(8.dp)); Text(tr(state, "OPEN FULL FORUM TOOLS", "OTWÓRZ PEŁNE FORUM"), fontWeight = FontWeight.Black, fontSize = 9.sp) } }
         if (state.forum.isEmpty()) item { EmptyState("≡", tr(state, "NO THREADS", "BRAK WĄTKÓW"), tr(state, "The channel is silent.", "Kanał jest cichy.")) }
         items(state.forum, key = { it.id }) { thread ->
             Column(Modifier.fillMaxWidth().border(1.dp, Line, CutCornerShape(topEnd = 18.dp)).background(Brush.linearGradient(listOf(PanelRaised, Ink))).padding(15.dp)) {
@@ -518,7 +609,45 @@ private fun EmptyState(icon: String, title: String, copy: String) {
 private fun tr(state: AppUiState, en: String, pl: String) = if (state.language == "pl") pl else en
 private fun roleName(role: String, language: String) = when (role) { "owner" -> if (language == "pl") "Właściciel" else "Owner"; "admin" -> "Administrator"; "moderator" -> "Moderator"; else -> if (language == "pl") "Użytkownik" else "Member" }
 private fun roleColor(role: String?) = when (role) { "owner" -> SignalRed; "admin" -> SignalGold; "moderator" -> Color(0xFF83B7C6); else -> Color(0xFF8D7655) }
+private fun chatBackground(theme: String): Brush = when (theme) {
+    "inferno" -> Brush.radialGradient(listOf(Color(0xFF45160D), Color(0xFF110503)), radius = 900f)
+    "cold-signal" -> Brush.verticalGradient(listOf(Color(0xFF09232B), Color(0xFF040E12)))
+    "violet-void" -> Brush.radialGradient(listOf(Color(0xFF2A103D), Color(0xFF09040D)), radius = 900f)
+    "ember-tape" -> Brush.verticalGradient(listOf(Color(0xFF30200E), Color(0xFF100B06)))
+    else -> Brush.verticalGradient(listOf(Ink, Color(0xFF110D09)))
+}
+
+private fun messageTime(value: String): String = runCatching {
+    val instant = Instant.parse(value)
+    java.time.ZoneId.systemDefault().let { zone -> java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(zone).format(instant) }
+}.getOrElse { value.takeLast(8).take(5) }
+
+private fun callMessageText(body: String, language: String): String? {
+    if (body == "[[DW_CALL_MISSED]]") return if (language == "pl") "Nieodebrane połączenie" else "Missed call"
+    val total = Regex("^\\[\\[DW_CALL_ENDED:(\\d+)]]$").find(body)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: return null
+    val hours = total / 3600; val minutes = (total % 3600) / 60; val seconds = total % 60
+    val duration = if (hours > 0) "%02d:%02d:%02d".format(hours, minutes, seconds) else "%02d:%02d".format(minutes, seconds)
+    return (if (language == "pl") "Zakończone połączenie" else "Call ended") + " · " + duration
+}
+
+private fun presenceText(member: Profile, language: String): String {
+    if (member.isOnline) return when (member.presenceMode) {
+        "busy" -> if (language == "pl") "zajęty" else "busy"
+        "away" -> if (language == "pl") "zaraz wracam" else "away"
+        else -> "online"
+    }
+    if (member.presenceMode == "invisible" || member.lastActiveAt.isNullOrBlank()) return "offline"
+    val minutes = runCatching { ChronoUnit.MINUTES.between(Instant.parse(member.lastActiveAt), Instant.now()).coerceAtLeast(0) }.getOrElse { return "offline" }
+    return when {
+        minutes < 1 -> if (language == "pl") "aktywny przed chwilą" else "active just now"
+        minutes < 60 -> if (language == "pl") "aktywny ${minutes} min temu" else "active ${minutes}m ago"
+        minutes < 1_440 -> if (language == "pl") "aktywny ${minutes / 60} godz. temu" else "active ${minutes / 60}h ago"
+        minutes < 10_080 -> if (language == "pl") "aktywny ${minutes / 1_440} dni temu" else "active ${minutes / 1_440}d ago"
+        else -> if (language == "pl") "aktywny ${minutes / 10_080} tyg. temu" else "active ${minutes / 10_080}w ago"
+    }
+}
 
 private fun openWeb(context: Context, url: String, language: String) {
-    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url + if (url.contains("?")) "&language=$language" else "?language=$language")))
+    val target = url + if (url.contains("?")) "&language=$language" else "?language=$language"
+    context.startActivity(Intent(context, PortalActivity::class.java).putExtra("url", target))
 }

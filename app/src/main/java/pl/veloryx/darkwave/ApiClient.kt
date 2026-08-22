@@ -1,17 +1,21 @@
 package pl.veloryx.darkwave
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class PersistentCookieJar(context: Context) : CookieJar {
@@ -41,6 +45,7 @@ class PersistentCookieJar(context: Context) : CookieJar {
 }
 
 class ApiClient(context: Context) {
+    private val appContext = context.applicationContext
     private val cookieJar = PersistentCookieJar(context.applicationContext)
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -113,6 +118,50 @@ class ApiClient(context: Context) {
         return ApiResult(result.value != null, result.message, result.status)
     }
 
+    suspend fun upload(conversationId: Long, text: String, uri: Uri): ApiResult<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val resolver = appContext.contentResolver
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext ApiResult(message = "File unavailable")
+            if (bytes.isEmpty() || bytes.size > 25_000_000) return@withContext ApiResult(message = "File may be up to 25 MB")
+            val mime = resolver.getType(uri) ?: "application/octet-stream"
+            var name = "attachment"
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+            }
+            uploadBytes(conversationId, text, bytes, mime, name)
+        } catch (error: Exception) { ApiResult(message = error.message ?: "Upload unavailable") }
+    }
+
+    suspend fun upload(conversationId: Long, text: String, file: File, mime: String): ApiResult<Boolean> = withContext(Dispatchers.IO) {
+        try { uploadBytes(conversationId, text, file.readBytes(), mime, file.name) }
+        catch (error: Exception) { ApiResult(message = error.message ?: "Upload unavailable") }
+    }
+
+    private fun uploadBytes(conversationId: Long, text: String, bytes: ByteArray, mime: String, name: String): ApiResult<Boolean> {
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("conversationId", conversationId.toString())
+            .addFormDataPart("body", text)
+            .addFormDataPart("file", name, bytes.toRequestBody(mime.toMediaType()))
+            .build()
+        val request = Request.Builder().url("$base/api/chat/upload")
+            .header("X-DW-Request", "account-form").header("Accept", "application/json").post(body).build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { JSONObject() }
+            return ApiResult(if (response.isSuccessful) true else null, json.optString("message").ifBlank { null }, response.code)
+        }
+    }
+
+    suspend fun chatAction(action: String, conversationId: Long, messageId: Long? = null, emoji: String? = null, details: String? = null, theme: String? = null, username: String? = null): ApiResult<Boolean> {
+        val payload = JSONObject().put("action", action).put("conversationId", conversationId)
+        messageId?.let { payload.put("messageId", it) }
+        emoji?.let { payload.put("emoji", it) }
+        details?.let { payload.put("details", it).put("reason", "other") }
+        theme?.let { payload.put("theme", it) }
+        username?.let { payload.put("username", it) }
+        val result = request("/api/chat/action", "POST", payload)
+        return ApiResult(result.value != null, result.message, result.status)
+    }
+
     suspend fun markRead(conversationId: Long) { request("/api/chat/read", "POST", JSONObject().put("conversationId", conversationId)) }
 
     suspend fun members(query: String): ApiResult<List<Profile>> {
@@ -143,7 +192,8 @@ private fun JSONObject?.toProfile(): Profile {
     return Profile(
         username = optString("username", "Unknown"), email = optString("email"), tag = optString("tag"), role = optString("role", "member"),
         avatarUrl = optString("avatarUrl").takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else "https://veloryx.pl$it" },
-        isOnline = optBoolean("isOnline"), statusMessage = optString("statusMessage").takeIf { it.isNotBlank() },
+        isOnline = optBoolean("isOnline"), presenceMode = optString("presenceMode", "auto"),
+        lastActiveAt = optString("lastActiveAt").takeIf { it.isNotBlank() }, statusMessage = optString("statusMessage").takeIf { it.isNotBlank() },
         level = progression?.optInt("level", 1) ?: 1, totalXp = progression?.optInt("totalXp", 0) ?: 0,
         relationship = optString("relationship", "none"),
         friendshipId = if (has("friendshipId") && !isNull("friendshipId")) optLong("friendshipId") else null,
@@ -155,12 +205,17 @@ private fun JSONObject.toConversation() = Conversation(
     id = optLong("id"), kind = optString("kind", "direct"), title = optString("title").takeIf { it.isNotBlank() },
     friend = optJSONObject("friend")?.toProfile(), lastMessage = optString("lastMessage").takeIf { it.isNotBlank() },
     lastMessageAt = optString("lastMessageAt").takeIf { it.isNotBlank() }, unreadCount = optInt("unreadCount"),
+    muted = optBoolean("muted"), restricted = optBoolean("restricted"), theme = optString("theme", "nocturne"),
+    ownerUsername = optString("ownerUsername").takeIf { it.isNotBlank() },
+    participants = optJSONArray("participants").toList { it.toProfile() },
 )
 
 private fun JSONObject.toMessage() = ChatMessage(
     id = optLong("id"), mine = optBoolean("mine"), sender = optJSONObject("sender")?.toProfile(),
     body = optString("body").takeIf { it.isNotBlank() }, createdAt = optString("createdAt"),
     deliveredAt = optString("deliveredAt").takeIf { it.isNotBlank() }, readAt = optString("readAt").takeIf { it.isNotBlank() }, recalledAt = optString("recalledAt").takeIf { it.isNotBlank() },
+    attachment = optJSONObject("attachment")?.let { item -> Attachment(item.optLong("id"), item.optString("kind"), item.optString("name"), item.optString("mime"), item.optLong("size"), item.optString("url")) },
+    reactions = optJSONArray("reactions").toList { item -> ChatReaction(item.optString("emoji"), item.optInt("count"), item.optBoolean("mine"), item.optJSONArray("users").toList { it.toProfile() }) },
 )
 
 private fun JSONObject.toForumThread() = ForumThread(
