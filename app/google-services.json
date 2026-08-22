@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "851499331806",
+    "project_id": "darkwave-community",
+    "storage_bucket": "darkwave-community.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851499331806:android:4e9821923fda2fdc4ed24f",
+        "android_client_info": {
+          "package_name": "pl.veloryx.darkwave"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMiEUfxRutqIc383dUYnRltFwBSSGYP2A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
