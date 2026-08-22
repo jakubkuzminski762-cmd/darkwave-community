@@ -2,7 +2,7 @@
   "versionCode": 4,
   "versionName": "0.2.2-alpha",
   "apkUrl": "https://veloryx.pl/downloads/darkwave-community.apk",
-  "sha256": "",
+  "sha256": "92ea18bc5f8d27674243739b55c1483ee82b2978151039ed8f1ff25036d832b0",
   "required": false,
   "notesEn": "Chat messages, saved language, session startup and profile avatars are fixed. Future releases can now be installed from inside the app.",
   "notesPl": "Naprawiono wiadomości czatu, zapamiętywanie języka, start sesji i awatary. Kolejne wersje będzie można instalować bezpośrednio z aplikacji."
