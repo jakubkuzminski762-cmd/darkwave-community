@@ -1,9 +1,9 @@
 {
-  "versionCode": 5,
-  "versionName": "0.3.0-alpha",
+  "versionCode": 6,
+  "versionName": "0.3.1-alpha",
   "apkUrl": "https://veloryx.pl/downloads/darkwave-community.apk",
-  "sha256": "fd4d2bb35e02fc7990ee3b5d3870dbdeb10101d44716f54562d0e0a58630ca30",
+  "sha256": "6fd68350663c647118874fb01d9cb33a75661bef7b3886e106a69814b7551447",
   "required": false,
-  "notesEn": "Native voice and video calls now work inside the app. This release also adds call controls, visible muted/restricted states and a completed Polish interface audit.",
-  "notesPl": "Rozmowy głosowe i wideo działają teraz natywnie w aplikacji. Dodano też sterowanie rozmową, widoczne stany wyciszenia/ograniczenia i uzupełniono polskie tłumaczenia."
+  "notesEn": "Darkwave branding is now consistent across the launcher icon, splash screen, sign-in, app header, shortcuts and notifications.",
+  "notesPl": "Logo Darkwave jest teraz spójne w ikonie aplikacji, ekranie startowym, logowaniu, nagłówku, skrótach i powiadomieniach."
 }
