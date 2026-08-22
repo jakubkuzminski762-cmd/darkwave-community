@@ -29,4 +29,4 @@ Production releases are built automatically from the protected signing secrets s
 
 ## Push delivery
 
-The Android client is ready to receive Firebase messages. Background delivery also needs a private Firebase service-account JSON on the PHP server plus a `/api/mobile/push/register` implementation. Never commit the service-account file to this public repository.
+The Android client is ready to receive Firebase messages and uses conversation-specific notification channels with bubble support on Android 11 and newer. Background delivery also needs a private Firebase service-account JSON on the PHP server plus a `/api/mobile/push/register` implementation. Never commit the service-account file to this public repository.
