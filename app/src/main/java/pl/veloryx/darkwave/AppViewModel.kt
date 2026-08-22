@@ -276,7 +276,10 @@ class AppViewModel(private val api: ApiClient, private val calls: NativeCallMana
     fun toggleCallMicrophone() = calls.toggleMicrophone()
     fun toggleCallCamera() = calls.toggleCamera()
     fun toggleCallSpeaker() = calls.toggleSpeaker()
-    fun callPermissionDenied() = calls.permissionDenied()
+    fun callPermissionDenied() {
+        calls.permissionDenied()
+        notice(t("Allow microphone access to make and answer calls.", "Zezwól na dostęp do mikrofonu, aby wykonywać i odbierać połączenia."), true)
+    }
     private fun t(en: String, pl: String) = if (_state.value.language == "pl") pl else en
 
     override fun onCleared() {

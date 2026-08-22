@@ -67,6 +67,7 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
     private val pendingIce = mutableMapOf<Long, MutableList<IceCandidate>>()
     private var pollJob: Job? = null
     private var ringJob: Job? = null
+    private var ringKind: String? = null
     private var lastSignalId = 0L
     private var localAudioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
@@ -123,7 +124,7 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
                 releaseMedia()
                 return@launch
             }
-            playTone(ToneGenerator.TONE_CDMA_DIAL_TONE_LITE, 240)
+            startRinging(incoming = false)
             pollOnce()
         }
     }
@@ -146,7 +147,9 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
 
     fun decline() = finish("decline")
 
-    fun end() = finish(if (_state.value.call?.status == "ringing") "end" else "end")
+    fun end() {
+        if (_state.value.call == null) cleanupCall() else finish("end")
+    }
 
     fun toggleMicrophone() {
         val next = !_state.value.microphoneMuted
@@ -213,7 +216,9 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
             errorEn = null,
             errorPl = null,
         )
-        if (incoming) startRinging() else stopRinging()
+        if (incoming) startRinging(incoming = true)
+        else if (call.status == "ringing") startRinging(incoming = false)
+        else stopRinging()
         for (signal in call.signals) {
             if (signal.id <= lastSignalId) continue
             handleSignal(call, signal)
@@ -390,11 +395,14 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
         localVideoTrack = factory.createVideoTrack("DW_VIDEO", source).apply { setEnabled(true) }
     }
 
-    private fun startRinging() {
-        if (ringJob?.isActive == true) return
+    private fun startRinging(incoming: Boolean) {
+        val kind = if (incoming) "incoming" else "outgoing"
+        if (ringJob?.isActive == true && ringKind == kind) return
+        stopRinging()
+        ringKind = kind
         ringJob = scope.launch {
             while (isActive) {
-                playTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 520)
+                playTone(if (incoming) ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD else ToneGenerator.TONE_CDMA_DIAL_TONE_LITE, if (incoming) 520 else 300)
                 delay(2_800)
             }
         }
@@ -403,6 +411,7 @@ class NativeCallManager(context: Context, private val api: ApiClient) {
     private fun stopRinging() {
         ringJob?.cancel()
         ringJob = null
+        ringKind = null
     }
 
     private fun playTone(tone: Int, duration: Int) {
