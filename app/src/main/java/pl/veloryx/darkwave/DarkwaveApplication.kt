@@ -26,6 +26,7 @@ class DarkwaveApplication : Application() {
                 ).apply {
                     description = "Darkwave Community private channel alerts"
                     enableVibration(true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setAllowBubbles(true)
                 },
             )
         }

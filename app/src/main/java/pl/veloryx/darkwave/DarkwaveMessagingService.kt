@@ -41,13 +41,27 @@ class DarkwaveMessagingService : FirebaseMessagingService() {
         val shortcut = ShortcutInfoCompat.Builder(this, shortcutId)
             .setLongLived(true)
             .setShortLabel(username.take(20))
-            .setIcon(IconCompat.createWithResource(this, R.drawable.app_icon_vector))
+            .setIcon(IconCompat.createWithResource(this, R.drawable.app_icon_brand))
             .setPerson(person)
             .setIntent(openIntent.setAction(Intent.ACTION_VIEW))
             .build()
         ShortcutManagerCompat.pushDynamicShortcut(this, shortcut)
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_MESSAGES)
+        val notificationChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && conversationId > 0) {
+            val channelId = "$CHANNEL_MESSAGES.$conversationId"
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(
+                android.app.NotificationChannel(channelId, username.take(32), NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Darkwave conversation with $username"
+                    setConversationId(CHANNEL_MESSAGES, shortcutId)
+                    setAllowBubbles(true)
+                    enableVibration(true)
+                },
+            )
+            channelId
+        } else CHANNEL_MESSAGES
+
+        val builder = NotificationCompat.Builder(this, notificationChannel)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(getColor(R.color.darkwave_red))
             .setContentTitle(title)
@@ -68,7 +82,7 @@ class DarkwaveMessagingService : FirebaseMessagingService() {
             builder.setBubbleMetadata(
                 NotificationCompat.BubbleMetadata.Builder(
                     bubbleIntent,
-                    IconCompat.createWithResource(this, R.drawable.app_icon_vector),
+                    IconCompat.createWithResource(this, R.drawable.app_icon_brand),
                 ).setDesiredHeight(640).setAutoExpandBubble(false).setSuppressNotification(false).build(),
             )
         }

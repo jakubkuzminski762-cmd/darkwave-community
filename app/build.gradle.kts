@@ -13,8 +13,8 @@ android {
         applicationId = "pl.veloryx.darkwave"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.0-alpha"
+        versionCode = 6
+        versionName = "0.3.1-alpha"
         ndk { abiFilters += listOf("arm64-v8a") }
         vectorDrawables.useSupportLibrary = true
     }

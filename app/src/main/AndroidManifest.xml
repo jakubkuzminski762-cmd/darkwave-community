@@ -12,10 +12,10 @@
         android:name=".DarkwaveApplication"
         android:allowBackup="false"
         android:fullBackupContent="false"
-        android:icon="@drawable/app_icon_vector"
+        android:icon="@drawable/app_icon_brand"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
-        android:roundIcon="@drawable/app_icon_vector"
+        android:roundIcon="@drawable/app_icon_brand"
         android:supportsRtl="true"
         android:theme="@style/Theme.Darkwave"
         android:usesCleartextTraffic="false">

@@ -43,6 +43,7 @@ class AppViewModel(private val api: ApiClient, private val calls: NativeCallMana
     val callEglContext get() = calls.eglContext
     private var messagePoll: Job? = null
     private var inboxPoll: Job? = null
+    private var pendingConversationId: Long? = null
 
     init {
         viewModelScope.launch { checkForUpdate() }
@@ -152,6 +153,13 @@ class AppViewModel(private val api: ApiClient, private val calls: NativeCallMana
             result.value?.let { inbox ->
                 val selected = _state.value.selected?.let { current -> inbox.conversations.firstOrNull { it.id == current.id } ?: current }
                 _state.value = _state.value.copy(inbox = inbox, selected = selected)
+                pendingConversationId?.let { pendingId ->
+                    inbox.conversations.firstOrNull { it.id == pendingId }?.let { conversation ->
+                        pendingConversationId = null
+                        _state.value = _state.value.copy(tab = AppTab.CHATS)
+                        selectConversation(conversation)
+                    }
+                }
             }
         }
     }
@@ -166,7 +174,13 @@ class AppViewModel(private val api: ApiClient, private val calls: NativeCallMana
     }
 
     fun openConversationById(id: Long) {
-        _state.value.inbox.conversations.firstOrNull { it.id == id }?.let {
+        val conversation = _state.value.inbox.conversations.firstOrNull { it.id == id }
+        if (conversation == null) {
+            pendingConversationId = id
+            if (_state.value.profile != null) refreshInbox()
+            return
+        }
+        conversation.let {
             _state.value = _state.value.copy(tab = AppTab.CHATS)
             selectConversation(it)
         }

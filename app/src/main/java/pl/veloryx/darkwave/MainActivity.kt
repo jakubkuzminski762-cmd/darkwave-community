@@ -22,6 +22,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -80,11 +82,16 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 217)
         }
         setContent { DarkwaveTheme { DarkwaveApp(model) } }
+        openConversationFromIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getLongExtra("conversationId", 0L).takeIf { it > 0 }?.let(model::openConversationById)
+        openConversationFromIntent(intent)
+    }
+
+    private fun openConversationFromIntent(source: Intent?) {
+        source?.getLongExtra("conversationId", 0L)?.takeIf { it > 0 }?.let(model::openConversationById)
     }
 }
 
@@ -322,7 +329,8 @@ private fun Splash(language: String) {
     ) {
         Box(Modifier.fillMaxSize().border(1.dp, Line, CutCornerShape(topEnd = 34.dp, bottomStart = 34.dp)))
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("DW", color = SignalGold, fontSize = 64.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            BrandMark(Modifier.size(112.dp))
+            Spacer(Modifier.height(18.dp))
             Text("DARKWAVE", color = Bone, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             Text("INTERACTIVE", color = SignalRed, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 7.sp)
             Spacer(Modifier.height(34.dp))
@@ -359,7 +367,8 @@ private fun AuthScreen(state: AppUiState, model: AppViewModel) {
         ) {
             item {
                 Row(Modifier.fillMaxWidth().widthIn(max = 520.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                    BrandMark(Modifier.size(46.dp))
+                    Column(Modifier.weight(1f).padding(start = 11.dp)) {
                         Text("DARKWAVE", color = Bone, fontWeight = FontWeight.Black, fontSize = 24.sp)
                         Text(t("MOBILE ACCESS / 02:17", "DOSTĘP MOBILNY / 02:17"), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 8.sp)
                     }
@@ -513,13 +522,23 @@ private fun HomeScreen(state: AppUiState, model: AppViewModel) {
 @Composable
 private fun TopBar(state: AppUiState, model: AppViewModel) {
     Row(Modifier.fillMaxWidth().height(66.dp).background(Color(0xFF0B0806)).border(width = 1.dp, color = Line).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(38.dp).background(SignalRed, CutCornerShape(topEnd = 13.dp)), contentAlignment = Alignment.Center) { Text("DW", color = Bone, fontWeight = FontWeight.Black, fontSize = 12.sp) }
+        BrandMark(Modifier.size(42.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text("DARKWAVE", color = Bone, fontWeight = FontWeight.Black, fontSize = 18.sp)
             Text(tr(state, "COMMUNITY / LIVE", "SPOŁECZNOŚĆ / AKTYWNA"), color = SignalGold, fontFamily = FontFamily.Monospace, fontSize = 7.sp)
         }
         LanguageToggle(state.language, model::setLanguage)
     }
+}
+
+@Composable
+private fun BrandMark(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.app_icon_brand),
+        contentDescription = "Darkwave Interactive",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
