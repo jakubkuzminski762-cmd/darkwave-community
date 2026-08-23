@@ -1,3 +1,6 @@
 @extends('layouts.public')
 @section('title',$page->seo_title?:$page->title.' | '.config('app.name')) @section('meta_description',$page->seo_description?:$page->excerpt) @section('canonical',$page->canonical_url?:url('/'.$page->slug))
-@section('content')<section class="page-hero"><div class="container narrow"><div class="breadcrumbs"><a href="{{ url('/') }}">Platforma</a><span>/</span><span aria-current="page">{{ $page->title }}</span></div><p class="eyebrow">Strona CMS</p><h1 class="font-display">{{ $page->title }}</h1>@if($page->excerpt)<p class="page-lead">{{ $page->excerpt }}</p>@endif</div></section><section class="section"><div class="container narrow"><article class="prose">@foreach(preg_split('/\R{2,}/',trim((string)$page->body)) as $paragraph)<p>{{ $paragraph }}</p>@endforeach</article></div></section>@endsection
+@section('content')
+<section class="page-hero"><div class="container narrow"><div class="breadcrumbs"><a href="{{ url('/') }}">Platforma</a><span>/</span><span aria-current="page">{{ $page->title }}</span></div><p class="eyebrow">Studio / information</p><h1 class="font-display">{{ $page->title }}</h1>@if($page->excerpt)<p class="page-lead">{{ $page->excerpt }}</p>@endif</div></section>
+<section class="section section-soft"><div class="container narrow"><article class="prose prose-shell" data-reveal>@foreach(preg_split('/\R{2,}/',trim((string)$page->body)) as $paragraph)<p>{{ $paragraph }}</p>@endforeach</article></div></section>
+@endsection
