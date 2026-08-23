@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#080B12">
     <meta name="color-scheme" content="dark">
     <title>@yield('title', config('app.name'))</title>
-    <link rel="stylesheet" href="{{ asset('design-system.css') }}?v=etap1-3">
-    <script src="{{ asset('design-system.js') }}?v=etap1-3" defer></script>
+    <link rel="stylesheet" href="/design-system.css?v=etap1-4">
+    <script src="/design-system.js?v=etap1-4" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">Przejdź do treści</a>
@@ -63,9 +63,30 @@
                 </a>
                 <p class="muted" style="max-width:34ch;margin:.9rem 0 0">Neutralna, premium platforma dla różnych gatunków gier. Etap 1 przygotowuje wspólny język interfejsu.</p>
             </div>
-            <div><p class="footer-title">Platforma</p><div class="footer-links"><a href="#games">Gry</a><a href="#components">Komponenty</a><a href="{{ route('api.v1.status') }}">Status API</a></div></div>
-            <div><p class="footer-title">Deweloperzy</p><div class="footer-links"><a href="{{ route('developer.home') }}">Portal dewelopera</a><a href="#forms">Formularze</a><a href="#states">Stany UI</a></div></div>
-            <div><p class="footer-title">Informacje</p><div class="footer-links"><a href="#accessibility">Dostępność</a><a href="#tokens">Tokeny</a><a href="{{ route('admin.home') }}">Administracja</a></div></div>
+            <div>
+                <p class="footer-title">Platforma</p>
+                <div class="footer-links">
+                    <a href="#games">Gry</a>
+                    <a href="#components">Komponenty</a>
+                    <a href="{{ route('api.v1.status') }}">Status API</a>
+                </div>
+            </div>
+            <div>
+                <p class="footer-title">Deweloperzy</p>
+                <div class="footer-links">
+                    <a href="{{ route('developer.home') }}">Portal dewelopera</a>
+                    <a href="#forms">Formularze</a>
+                    <a href="#states">Stany UI</a>
+                </div>
+            </div>
+            <div>
+                <p class="footer-title">Informacje</p>
+                <div class="footer-links">
+                    <a href="#accessibility">Dostępność</a>
+                    <a href="#tokens">Tokeny</a>
+                    <a href="{{ route('admin.home') }}">Administracja</a>
+                </div>
+            </div>
         </div>
         <div class="container footer-bottom">Etap 1 · Design system i layout · Bez logiki sklepu</div>
     </footer>
