@@ -26,13 +26,16 @@ document.addEventListener('DOMContentLoaded',()=>{
     const tag=document.activeElement?.tagName;
     const typing=tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||document.activeElement?.isContentEditable;
     if(event.key==='/'&&!typing){
-      const target=document.querySelector('#global-search')||searches[0];
+      const target=document.querySelector('#catalog-search')||document.querySelector('#global-search')||searches.find(input=>input.offsetParent!==null)||searches[0];
       if(target){event.preventDefault();target.focus();target.select?.();}
     }
     if(event.key==='Escape'&&document.activeElement?.matches?.('input[type="search"]'))document.activeElement.blur();
   });
 
   searches.forEach(input=>{
-    input.addEventListener('input',()=>input.closest('.header-search,.mobile-menu-search,.catalog-search-control')?.classList.toggle('has-query',input.value.trim().length>0));
+    const root=input.closest('.header-search,.mobile-menu-search,.catalog-search-control');
+    const sync=()=>root?.classList.toggle('has-query',input.value.trim().length>0);
+    sync();
+    input.addEventListener('input',sync);
   });
 });
