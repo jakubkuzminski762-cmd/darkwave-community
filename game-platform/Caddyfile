@@ -1,0 +1,33 @@
+{
+    admin off
+    persist_config off
+    auto_https off
+
+    log {
+        format json
+        output stderr
+        level INFO
+    }
+
+    frankenphp
+}
+
+:{$PORT:80} {
+    root * /app/public
+
+    encode zstd br gzip
+
+    @static {
+        file
+        path /build/* /favicon.ico /robots.txt
+    }
+
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    file_server {
+        hide .git
+        hide .env*
+    }
+
+    php_server
+}
