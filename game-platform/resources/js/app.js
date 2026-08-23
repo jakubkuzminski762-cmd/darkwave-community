@@ -31,6 +31,28 @@ Alpine.data('uiShell', () => ({
         this.$nextTick(() => this.lastFocused?.focus());
     },
 
+    trapFocus(event) {
+        if (!this.modalOpen) return;
+
+        const modal = event.currentTarget;
+        const focusable = [...modal.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )].filter((element) => !element.hasAttribute('hidden'));
+
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    },
+
     showToast() {
         this.toastOpen = true;
         window.setTimeout(() => {
