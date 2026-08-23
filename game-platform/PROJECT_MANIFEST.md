@@ -6,43 +6,40 @@ Profesjonalna strona studia gier + platforma wydawniczo-sprzedażowa.
 ## Status
 **Etap 0 — ukończony**  
 **Etap 1 — ukończony**  
-**Etap 2 — ukończony w kodzie**
+**Etap 2 — ukończony**  
+**Etap 3 — ukończony w kodzie**
+
+Publiczny staging: `https://darkwave-community-production.up.railway.app`
 
 ## Stack
-Laravel 13 · PHP 8.3+ · MariaDB/MySQL · Blade · Tailwind CSS 4 · Alpine.js · Vite · database queue.
+Laravel 13 · PHP 8.3+ · MariaDB/MySQL · Blade · Tailwind CSS 4 · Alpine.js/Vite + statyczne assety stagingowe · database queue.
 
-## Etap 2 — zakres zrealizowany
-- publiczna homepage oparta na danych CMS;
-- `pages` i `page_blocks` dla stron i bloków treści;
-- dynamiczne menu główne i stopka prawna (`menus`);
-- aktualności (`posts`) i pięć kategorii przewidzianych w specyfikacji;
-- statusy `draft`, `scheduled`, `published`;
-- publikacja planowana bez ujawniania treści przed czasem;
-- podpisane, czasowe URL-e podglądu stron i postów;
-- biblioteka metadanych mediów (`media`) bez przechowywania dużych plików na hostingu;
-- SEO title, description, canonical i podstawowe Open Graph;
-- `noindex,nofollow` dla podglądów CMS;
-- podstawowy panel CMS chroniony `auth` + Gates (`cms.manage`, `news.manage`);
-- edycja stron i aktualności;
-- seeder przykładowej homepage, stron, menu, mediów i aktualności;
-- pełne stany publiczne dla braku treści;
-- animacje progresywne i `prefers-reduced-motion`;
-- test widoczności publikacji planowanej i wersji roboczych;
-- test uprawnień Redaktor vs Finance;
-- zaktualizowany smoke test aplikacji.
+## Etap 3 — zakres zrealizowany
+- modele i migracje katalogu: `games`, `genres`, `tags`, `platforms`, `game_modes`, `game_features`, media gier, trailery, wydania, premiery, release notes i wymagania systemowe;
+- jeden gatunek główny + dodatkowe gatunki i tagi;
+- słowniki platform, trybów gry i funkcji dostępności;
+- statusy premiery: draft, announced, coming soon, early access, released, discontinued;
+- osobny status publikacji chroniący drafty i treści przyszłe;
+- publiczny katalog `/gry`;
+- wyszukiwanie po tytule, opisie, studiu, wydawcy i tagach;
+- filtry gatunku, platformy, trybu, języka, dostępności, statusu i przedziału cenowego;
+- sortowanie polecane / najnowsze / data premiery / cena / alfabet;
+- stan filtrów zapisany w URL, aktywne filtry, czyszczenie i server-side pagination;
+- widok siatki i listy;
+- strona gry `/gry/{slug}` z hero, CTA, ceną katalogową, platformami, cechami, gatunkami, tagami, trybami i dostępnością;
+- galeria z lightboxem i opcjonalny trailer bez autoplay;
+- wydania, wersje, wymagania minimalne/zalecane, press kit, wsparcie i aktualności gry;
+- rekomendacje oparte na gatunkach i tagach, bez profilowania użytkownika;
+- JSON-LD `VideoGame`;
+- panel `/admin/games` chroniony `auth` + `games.manage`, z edycją relacji, trailera, wymagań i danych wydania;
+- panel słowników `/admin/games/dictionaries` do dodawania gatunków, tagów, platform, trybów i deklaracji dostępności;
+- seedery 8 demonstracyjnych gier i słowników;
+- fabryki `Game`, `Genre`, `Tag`;
+- testy filtrów, wyszukiwania, slugów, publikacji i uprawnień Redaktor vs Finance;
+- homepage Etapu 2 podłączona do prawdziwych rekordów katalogu.
 
-## Dane demonstracyjne
-Homepage: Project Meridian + 6 kart demonstracyjnych gatunków, premiery, 4-etapowy skrót procesu wydawniczego, aktualności i społeczność.  
-Strony: `/wydaj-z-nami`, `/o-nas`, `/polityka-prywatnosci`.  
-Aktualności: `/aktualnosci` i przykładowe opublikowane wpisy.  
-Design system z Etapu 1 pozostaje pod `/design-system`.
-
-## Bezpieczeństwo / świadome decyzje
-- Seeder nie tworzy żadnego konta ani przewidywalnego hasła.
-- Panel CMS wymaga zalogowanego użytkownika i uprawnień; właściwe logowanie UI powstanie w Etapie 4.
-- Podgląd treści jest dostępny wyłącznie przez czasowy podpisany URL.
-- Newsletter ma gotowy stan UI, ale zapis adresów nie jest jeszcze uruchomiony; moduł komunikacji/e-mail jest w późniejszym etapie.
-- Rzeczywiste rekordy gier i ich relacje nie są tworzone w Etapie 2; homepage używa danych bloków CMS do czasu Etapu 3.
+## Ważna granica Etapu 3
+Cena w `game_editions` jest informacją katalogową potrzebną do kart i strony gry. Prawdziwe produkty, `product_prices`, koszyk, checkout, płatności i licencje pozostają do Etapu 5. Wishlist pozostaje do Etapu 4.
 
 ## Migracje
 1. `0001_01_01_000000_create_users_table.php`
@@ -50,6 +47,7 @@ Design system z Etapu 1 pozostaje pod `/design-system`.
 3. `0001_01_01_000002_create_jobs_table.php`
 4. `2026_08_23_000100_create_roles_and_permissions_tables.php`
 5. `2026_08_23_000200_create_cms_tables.php`
+6. `2026_08_23_000300_create_catalog_tables.php`
 
 ## Następny etap
-**Etap 3 — katalog wielu gatunków:** gry, gatunki, tagi, platformy, tryby, media gier, wymagania, wydania, filtry URL, sortowanie, pagination i pełna strona gry.
+**Etap 4 — konta i biblioteka gracza:** rejestracja, e-mail verification, logowanie, reset hasła, profile, sesje, preferencje, 2FA tam gdzie przewidziane, wishlist i pusty dashboard biblioteki.
