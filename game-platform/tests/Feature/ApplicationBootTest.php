@@ -12,7 +12,8 @@ class ApplicationBootTest extends TestCase
     {
         $this->get('/')
             ->assertOk()
-            ->assertSee('Fundament aplikacji działa');
+            ->assertSee('Jedna marka.')
+            ->assertSee('Design system');
     }
 
     public function test_health_endpoint_is_available(): void
