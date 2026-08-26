@@ -1,0 +1,96 @@
+name: Temporary MaSzyna conductor build
+
+on:
+  push:
+    branches:
+      - maszyna-conductor-build
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CONFIG_WIN: RelWithDebInfo
+  MASZYNA_BASE: 9a0b63a97c7243ccae45685ee47215a5db762d4b
+
+jobs:
+  windows-package:
+    name: Windows x64 Steam package
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout temporary builder
+        uses: actions/checkout@v6
+        with:
+          path: builder
+
+      - name: Checkout MaSzyna source
+        shell: pwsh
+        run: |
+          git clone --recurse-submodules https://github.com/MaSzyna-EU07/maszyna.git source
+          git -C source checkout $env:MASZYNA_BASE
+          git -C source submodule update --init --recursive
+          git -C source apply ../builder/.maszyna-build/maszyna-conductor.patch
+
+      - name: Setup Python 3.14
+        id: python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          architecture: x64
+
+      - name: Prepare Windows dependencies
+        shell: cmd
+        working-directory: source
+        run: call setup.bat
+
+      - name: Configure
+        shell: pwsh
+        working-directory: source
+        run: |
+          $pythonExe = "${{ steps.python.outputs.python-path }}"
+          $pythonRoot = Split-Path $pythonExe
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            "-DPython3_ROOT_DIR=$pythonRoot" `
+            -DADD_VERSION_SUFFIX=OFF
+
+      - name: Build
+        shell: pwsh
+        working-directory: source
+        run: |
+          cmake --build build `
+            --config $env:CONFIG_WIN `
+            --parallel
+
+      - name: Copy shaders
+        shell: pwsh
+        working-directory: source
+        run: |
+          $output = "build/bin/$env:CONFIG_WIN"
+          New-Item -ItemType Directory -Force -Path "$output/shaders" | Out-Null
+          Copy-Item -Path "shaders/*" -Destination "$output/shaders" -Recurse -Force
+
+      - name: Make Steam installer
+        shell: pwsh
+        working-directory: source
+        run: |
+          ./packaging/steam/package-windows.ps1 `
+            -BuildOutput "build/bin/$env:CONFIG_WIN" `
+            -OutputDirectory dist
+
+      - name: Upload Steam installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maszyna-Conductor-Steam
+          path: source/dist/Maszyna-Conductor-Steam.zip
+          if-no-files-found: error
+          retention-days: 14
