@@ -1,0 +1,1457 @@
+diff --git a/.github/workflows/build_conductor_steam.yml b/.github/workflows/build_conductor_steam.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..daba8a40e415732faba61e3360b06c375124b8fb
+--- /dev/null
++++ b/.github/workflows/build_conductor_steam.yml
+@@ -0,0 +1,78 @@
++name: Build conductor mode for Steam
++
++on:
++  workflow_dispatch:
++  push:
++    branches:
++      - feature/conductor-mode-mvp
++      - maszyna-conductor-build
++
++permissions:
++  contents: read
++
++env:
++  CONFIG_WIN: RelWithDebInfo
++
++jobs:
++  windows-package:
++    name: Windows x64 Steam package
++    runs-on: windows-2022
++
++    steps:
++      - name: Checkout repository
++        uses: actions/checkout@v6
++        with:
++          fetch-depth: 0
++          submodules: recursive
++
++      - name: Setup Python 3.14
++        id: python
++        uses: actions/setup-python@v6
++        with:
++          python-version: "3.14"
++          architecture: x64
++
++      - name: Prepare Windows dependencies
++        shell: cmd
++        run: call setup.bat
++
++      - name: Configure
++        shell: pwsh
++        run: |
++          $pythonExe = "${{ steps.python.outputs.python-path }}"
++          $pythonRoot = Split-Path $pythonExe
++
++          cmake -S . -B build `
++            -G "Visual Studio 17 2022" `
++            -A x64 `
++            "-DPython3_ROOT_DIR=$pythonRoot" `
++            -DADD_VERSION_SUFFIX=OFF
++
++      - name: Build
++        shell: pwsh
++        run: |
++          cmake --build build `
++            --config $env:CONFIG_WIN `
++            --parallel
++
++      - name: Copy shaders
++        shell: pwsh
++        run: |
++          $output = "build/bin/$env:CONFIG_WIN"
++          New-Item -ItemType Directory -Force -Path "$output/shaders" | Out-Null
++          Copy-Item -Path "shaders/*" -Destination "$output/shaders" -Recurse -Force
++
++      - name: Make Steam installer
++        shell: pwsh
++        run: |
++          ./packaging/steam/package-windows.ps1 `
++            -BuildOutput "build/bin/$env:CONFIG_WIN" `
++            -OutputDirectory dist
++
++      - name: Upload Steam installer
++        uses: actions/upload-artifact@v4
++        with:
++          name: Maszyna-Conductor-Steam
++          path: dist/Maszyna-Conductor-Steam.zip
++          if-no-files-found: error
++          retention-days: 14
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 56cf1bce246c9207fc471b6699f5f4577c6a00c5..3b7e8daaa3e2a47f8f3f06ab438ffe06e1c0fe5e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -150,6 +150,8 @@ set(SOURCES
+ "scene/scene.cpp"
+ "scene/scenenode.cpp"
+ "simulation/simulation.cpp"
++"simulation/conductor.cpp"
++"simulation/conductortickets.cpp"
+ "model/vertex.cpp"
+ "audio/audio.cpp"
+ "audio/audiorenderer.cpp"
+@@ -164,6 +166,7 @@ set(SOURCES
+ "input/driverkeyboardinput.cpp"
+ "application/drivermode.cpp"
+ "application/driveruilayer.cpp"
++"application/conductorpanel.cpp"
+ "application/driveruipanels.cpp"
+ "input/editorkeyboardinput.cpp"
+ "editor/editorSettings.cpp"
+@@ -625,4 +628,4 @@ if(ENABLE_AVX2)
+     else()
+         target_compile_options(${PROJECT_NAME} PRIVATE -mavx2)
+     endif()
+-endif()
+\ No newline at end of file
++endif()
+diff --git a/application/conductorpanel.cpp b/application/conductorpanel.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..2c9b06b0332bbc0b81f055e235e27f8d3339e2db
+--- /dev/null
++++ b/application/conductorpanel.cpp
+@@ -0,0 +1,107 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#include "stdafx.h"
++#include "application/conductorpanel.h"
++
++#include "simulation/conductor.h"
++
++conductor_panel::conductor_panel()
++    : ui_panel("Conductor duty", true) {
++    title = "Sluzba konduktora";
++    size_min = {360, 260};
++    size_max = {520, 720};
++}
++
++char const *conductor_panel::ticket_state_label(conductor_duty::ticket_state const state) {
++    switch (state) {
++    case conductor_duty::ticket_state::valid:
++        return "Bilet wazny";
++    case conductor_duty::ticket_state::missing:
++        return "Brak biletu";
++    case conductor_duty::ticket_state::wrong_train:
++        return "Bilet na inny pociag";
++    case conductor_duty::ticket_state::discount_without_document:
++        return "Brak dokumentu do ulgi";
++    }
++    return "Nieznany";
++}
++
++void conductor_panel::render_contents() {
++    auto &session = simulation::Conductor;
++
++    ImGui::TextWrapped("%s", session.status().c_str());
++    ImGui::Separator();
++
++    if (!session.active()) {
++        ImGui::TextWrapped(
++            "F8 uruchamia tryb konduktora. Maszynista AI przejmie prowadzenie pociagu.");
++        if (ImGui::Button("Rozpocznij sluzbe (F8)")) {
++            session.request_toggle();
++        }
++        return;
++    }
++
++    ImGui::Text("Sklad: %s", session.train_name().c_str());
++    ImGui::Text("Pozycja: %s", session.seated() ? "miejsce konduktora" : "przejscie wagonu");
++
++    if (ImGui::Button(session.seated() ? "Wstan (C)" : "Usiadz (C)")) {
++        session.request_seat_toggle();
++    }
++    ImGui::SameLine();
++    if (ImGui::Button("Zakoncz sluzbe")) {
++        session.request_toggle();
++    }
++
++    ImGui::Separator();
++    ImGui::TextUnformatted("Obsluga drzwi");
++    if (ImGui::Button("Otworz lewe")) {
++        session.request_door_command(user_command::dooropenleft);
++    }
++    ImGui::SameLine();
++    if (ImGui::Button("Otworz prawe")) {
++        session.request_door_command(user_command::dooropenright);
++    }
++    if (ImGui::Button("Zamknij wszystkie")) {
++        session.request_door_command(user_command::doorcloseall);
++    }
++    if (ImGui::Button("Gotow do odjazdu (V)")) {
++        session.request_departure_signal();
++    }
++
++    ImGui::Separator();
++    ImGui::TextUnformatted("Kontrola biletow");
++    auto const &tickets = session.tickets();
++    ImGui::Text(
++        "Sprawdzone: %zu/%zu   Wynik: %d",
++        tickets.inspected_count(), tickets.passengers().size(), tickets.score());
++
++    auto const *current = tickets.current();
++    if (current != nullptr) {
++        ImGui::Text("Pasazer %d, miejsce %d", current->passenger_id, current->seat_number);
++        ImGui::Text("%s", ticket_state_label(current->state));
++
++        if (current->resolution == conductor_duty::ticket_resolution::none) {
++            if (ImGui::Button("Wystaw bilet")) {
++                session.request_ticket_resolution(conductor_duty::ticket_resolution::fare_issued);
++            }
++            ImGui::SameLine();
++            if (ImGui::Button("Oplata dodatkowa")) {
++                session.request_ticket_resolution(conductor_duty::ticket_resolution::penalty_issued);
++            }
++            if (ImGui::Button("Pomin naruszenie")) {
++                session.request_ticket_resolution(conductor_duty::ticket_resolution::ignored);
++            }
++        }
++    }
++
++    if (!tickets.complete() && ImGui::Button("Sprawdz kolejnego (E)")) {
++        session.request_ticket_inspection();
++    }
++    if (tickets.complete()) {
++        ImGui::TextUnformatted("Kontrola zakonczona.");
++    }
++}
+diff --git a/application/conductorpanel.h b/application/conductorpanel.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..78a33e6abc5f0c3d2c99bd764f2fc1455479b2ee
+--- /dev/null
++++ b/application/conductorpanel.h
+@@ -0,0 +1,19 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#pragma once
++
++#include "application/uilayer.h"
++#include "simulation/conductortickets.h"
++
++class conductor_panel : public ui_panel {
++public:
++    conductor_panel();
++    void render_contents() override;
++
++private:
++    static char const *ticket_state_label(conductor_duty::ticket_state state);
++};
+diff --git a/application/drivermode.cpp b/application/drivermode.cpp
+index 80fd3b17dc3367f2a49e5da783e9ad6dc1cce112..70f4543129ae1232bdeb166493831f7bc6a5b8bc 100644
+--- a/application/drivermode.cpp
++++ b/application/drivermode.cpp
+@@ -17,6 +17,7 @@ http://mozilla.org/MPL/2.0/.
+ #include "simulation/simulation.h"
+ #include "simulation/simulationtime.h"
+ #include "simulation/simulationenvironment.h"
++#include "simulation/conductor.h"
+ #include "scene/scene.h"
+ #include "rendering/lightarray.h"
+ #include "rendering/particles.h"
+@@ -396,6 +397,8 @@ bool driver_mode::update()
+ 
+ 	// variable step render time routines
+ 
++	simulation::Conductor.update(simulation::Train, Camera);
++
+ 	update_camera(deltarealtime);
+ 
+ 	simulation::Environment.update_precipitation(); // has to be launched after camera step to work properly
+@@ -638,8 +641,11 @@ void driver_mode::update_camera(double const Deltatime)
+ 
+ 		if (simulation::Train != nullptr && false == FreeFlyModeFlag)
+ 		{
+-			// keep the camera within cab boundaries
+-			Camera.m_owneroffset = simulation::Train->clamp_inside(Camera.m_owneroffset);
++			// Keep the camera within the appropriate interior. Conductor mode uses
++			// the passenger compartment instead of the active driver's cab.
++			Camera.m_owneroffset = simulation::Conductor.active()
++				? simulation::Conductor.clamp_inside(Camera.m_owneroffset)
++				: simulation::Train->clamp_inside(Camera.m_owneroffset);
+ 		}
+ 
+ 		if (simulation::Train != nullptr && false == FreeFlyModeFlag && false == Global.CabWindowOpen)
+@@ -722,8 +728,12 @@ void driver_mode::update_camera(double const Deltatime)
+ 			auto shakencamerapos{Camera.m_owneroffset +
+ 			                     shakescale * glm::vec3(1.5 * Camera.m_owner->ShakeState.offset.x, 2.0 * Camera.m_owner->ShakeState.offset.y, 1.5 * Camera.m_owner->ShakeState.offset.z)};
+ 
+-			Camera.Pos = Camera.m_owner->GetWorldPosition(FreeFlyModeFlag ? glm::dvec3(shakencamerapos) : // TODO: vehicle collision box for the external vehicle camera
+-			                                                                simulation::Train->clamp_inside(shakencamerapos));
++			Camera.Pos = Camera.m_owner->GetWorldPosition(
++				FreeFlyModeFlag
++					? glm::dvec3(shakencamerapos) // TODO: vehicle collision box for the external vehicle camera
++					: simulation::Conductor.active()
++						? simulation::Conductor.clamp_inside(shakencamerapos)
++						: simulation::Train->clamp_inside(shakencamerapos));
+ 
+ 			if (!Global.iPause)
+ 			{
+diff --git a/application/driveruilayer.cpp b/application/driveruilayer.cpp
+index 0b8463f8cfd4a524a9f7f2e38c0633c55d6c2f80..e796846a856d5a08360a59bd0c2982bff380c529 100644
+--- a/application/driveruilayer.cpp
++++ b/application/driveruilayer.cpp
+@@ -14,6 +14,7 @@ http://mozilla.org/MPL/2.0/.
+ #include "application/application.h"
+ #include "utilities/translation.h"
+ #include "simulation/simulation.h"
++#include "simulation/conductor.h"
+ #include "vehicle/Train.h"
+ #include "model/AnimModel.h"
+ #include "rendering/renderer.h"
+@@ -37,6 +38,7 @@ driver_ui::driver_ui()
+ 	add_external_panel(&m_logpanel);
+ 	add_external_panel(&m_perfgraphpanel);
+ 	add_external_panel(&m_cameraviewpanel);
++	add_external_panel(&m_conductorpanel);
+ 	m_logpanel.is_open = false;
+ 
+ 	m_aidpanel.title = STR("Driving Aid");
+@@ -81,6 +83,7 @@ void driver_ui::render_menu_contents()
+ 		ImGui::MenuItem(m_vehiclelist.name().c_str(), nullptr, &m_vehiclelist.is_open);
+ 		ImGui::MenuItem(m_trainingcardpanel.name().c_str(), nullptr, &m_trainingcardpanel.is_open);
+ 		ImGui::MenuItem(m_cameraviewpanel.name().c_str(), nullptr, &m_cameraviewpanel.is_open);
++		ImGui::MenuItem(m_conductorpanel.name().c_str(), "F8", &m_conductorpanel.is_open);
+ 		if (DebugModeFlag)
+ 			ImGui::MenuItem(m_perfgraphpanel.name().c_str(), nullptr, &m_perfgraphpanel.is_open);
+ 
+@@ -102,6 +105,34 @@ bool driver_ui::on_key(int const Key, int const Action)
+ 	if (ui_layer::on_key(Key, Action))
+ 		return true;
+ 
++	if (Action == GLFW_PRESS && false == Global.ctrlState && false == Global.shiftState)
++	{
++		if (Key == GLFW_KEY_F8)
++		{
++			m_conductorpanel.is_open = true;
++			simulation::Conductor.request_toggle();
++			return true;
++		}
++		if (simulation::Conductor.active())
++		{
++			if (Key == GLFW_KEY_C)
++			{
++				simulation::Conductor.request_seat_toggle();
++				return true;
++			}
++			if (Key == GLFW_KEY_E)
++			{
++				simulation::Conductor.request_ticket_inspection();
++				return true;
++			}
++			if (Key == GLFW_KEY_V)
++			{
++				simulation::Conductor.request_departure_signal();
++				return true;
++			}
++		}
++	}
++
+ 	switch (Key)
+ 	{
+ 	case GLFW_KEY_TAB:
+diff --git a/application/driveruilayer.h b/application/driveruilayer.h
+index 8ad1d77589c53de2dfd08b777817e25a05a77c10..eaf81fc06c0e24a46b5a2b63309fac8ce64edec4 100644
+--- a/application/driveruilayer.h
++++ b/application/driveruilayer.h
+@@ -11,6 +11,7 @@ http://mozilla.org/MPL/2.0/.
+ 
+ #include "application/uilayer.h"
+ #include "application/driveruipanels.h"
++#include "application/conductorpanel.h"
+ #include "input/command.h"
+ 
+ #include "widgets/vehiclelist.h"
+@@ -62,6 +63,7 @@ private:
+     transcripts_panel m_transcriptspanel { "Transcripts", true }; // voice transcripts
+ 	trainingcard_panel m_trainingcardpanel;
+ 	perfgraph_panel m_perfgraphpanel;
++    conductor_panel m_conductorpanel;
+     bool m_paused { false };
+ 
+ 	command_relay m_relay;
+diff --git a/docs/conductor-mode.md b/docs/conductor-mode.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10e9ddfacc6daff888bce829abe8135bb225019e
+--- /dev/null
++++ b/docs/conductor-mode.md
+@@ -0,0 +1,55 @@
++# Tryb konduktora — prototyp EN57
++
++Prototyp dodaje do MaSzyny osobną rolę konduktora. Pociąg nadal korzysta z
++dotychczasowej fizyki, rozkładu jazdy, sygnalizacji oraz maszynisty AI. Gracz
++porusza się wewnątrz uproszczonej przestrzeni wagonu i wykonuje czynności
++konduktorskie z panelu **Służba konduktora**.
++
++## Uruchomienie
++
++1. Uruchom scenariusz pasażerski z aktywnym EN57.
++2. Naciśnij `F8` albo wybierz przycisk **Rozpocznij służbę**.
++3. Po aktywacji maszynista AI przejmuje prowadzenie pociągu.
++
++## Sterowanie
++
++- `strzałki` — chodzenie po wagonie,
++- `Shift` podczas chodzenia — szybszy krok,
++- `C` — usiądź lub wstań z miejsca konduktora,
++- `E` — sprawdź kolejnego pasażera,
++- `V` — podaj sygnał „gotów do odjazdu”,
++- `F8` — rozpocznij lub zakończ służbę.
++
++Panel pozwala również otwierać lewe lub prawe drzwi, zamykać wszystkie drzwi,
++obsługiwać nieprawidłowe bilety i obserwować wynik kontroli.
++
++## Zasady odjazdu
++
++W trybie konduktora pociąg pasażerski nie odjedzie automatycznie po osiągnięciu
++godziny rozkładowej. Sygnał gracza jest przyjmowany wyłącznie, gdy:
++
++- pociąg prowadzi maszynista AI,
++- skład stoi przy punkcie zatrzymania pasażerskiego,
++- pociąg się nie porusza,
++- wszystkie drzwi są zamknięte, a zezwolenia drzwiowe wyłączone.
++
++Po spełnieniu warunków AI ruszy dopiero o czasie i przy wolnej drodze.
++
++## Zakres obecnej wersji
++
++Obecna wersja jest warstwą techniczną i grywalnym szkieletem: ma sterowanie
++rolą, ograniczenie ruchu do wnętrza pojazdu, miejsce konduktora, drzwi, ręczne
++zezwolenie na odjazd oraz logicznych pasażerów z kontrolą biletów. Modele i
++animacje pasażerów 3D, dokładne bryły kolizji wnętrza EN57, klikalne przyciski
++przy każdych drzwiach i przechodzenie między członami wymagają zasobów pełnej
++instalacji MaSzyny i stanowią kolejny etap.
++
++## Szybki test systemu biletów
++
++Model biletowy nie zależy od renderera i można sprawdzić samym kompilatorem:
++
++```sh
++g++ -std=c++20 -I. simulation/conductortickets.cpp \
++    tests/conductortickets_test.cpp -o /tmp/conductortickets_test
++/tmp/conductortickets_test
++```
+diff --git a/packaging/steam/README_PL.txt b/packaging/steam/README_PL.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..c850142efdd3ac57c1736a8cf6d35efb30693872
+--- /dev/null
++++ b/packaging/steam/README_PL.txt
+@@ -0,0 +1,37 @@
++MASZYNA - TRYB KONDUKTORA (STEAM)
++================================
++
++INSTALACJA
++
++1. Zamknij MaSzyne.
++2. W Steam kliknij prawym przyciskiem MaSzyna.
++3. Wybierz: Zarzadzaj -> Przegladaj pliki lokalne.
++4. Rozpakuj caly folder "Maszyna-Conductor-Steam" do otwartego folderu gry.
++5. Otworz rozpakowany folder i uruchom install.bat.
++6. Uruchom MaSzyne normalnie przez Steam.
++
++Instalator zachowuje kopie wszystkich zastepowanych plikow w folderze:
++conductor_mode_backup
++
++STEROWANIE
++
++F8       rozpoczecie lub zakonczenie sluzby konduktora
++strzalki chodzenie po wagonie
++Shift    szybszy krok
++C        usiadz / wstan
++E        sprawdz kolejnego pasazera
++V        sygnal "gotow do odjazdu"
++
++Drzwi i sprawy biletowe mozna obslugiwac w panelu "Sluzba konduktora".
++
++ODINSTALOWANIE
++
++Uruchom uninstall.bat z folderu Maszyna-Conductor-Steam.
++Program przywroci pliki zachowane przed pierwsza instalacja moda.
++Jesli folder zostal usuniety, uzyj w Steam funkcji:
++Wlasciwosci -> Zainstalowane pliki -> Sprawdz spojnosc plikow.
++
++UWAGA
++
++Aktualizacja lub sprawdzanie plikow przez Steam moze przywrocic oficjalny
++eu07.exe. W takim przypadku uruchom install.bat ponownie.
+diff --git a/packaging/steam/install.bat b/packaging/steam/install.bat
+new file mode 100644
+index 0000000000000000000000000000000000000000..60fbe10ebeb1051270aafa86ce91df598f33652b
+--- /dev/null
++++ b/packaging/steam/install.bat
+@@ -0,0 +1,17 @@
++@echo off
++setlocal EnableExtensions
++
++title MaSzyna - instalator trybu konduktora
++
++powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -GameDirectory "%~1"
++set "RESULT=%ERRORLEVEL%"
++
++echo.
++if "%RESULT%"=="0" (
++    echo GOTOWE. Uruchom MaSzyne normalnie przez Steam.
++    echo W grze nacisnij F8, aby rozpoczac sluzbe konduktora.
++) else (
++    echo Instalacja nie zostala zakonczona. Kod bledu: %RESULT%
++)
++pause
++exit /b %RESULT%
+diff --git a/packaging/steam/install.ps1 b/packaging/steam/install.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..73b306af8f9a3e0d86f692b6676581c628d0d695
+--- /dev/null
++++ b/packaging/steam/install.ps1
+@@ -0,0 +1,86 @@
++param(
++    [Parameter(Mandatory = $false)]
++    [string]$GameDirectory = ""
++)
++
++$ErrorActionPreference = "Stop"
++
++try {
++    $packageRoot = $PSScriptRoot
++    $runtimeRoot = Join-Path $packageRoot "Runtime"
++
++    if (-not (Test-Path (Join-Path $runtimeRoot "eu07.exe") -PathType Leaf)) {
++        throw "W paczce brakuje Runtime\eu07.exe. Pobierz i rozpakuj kompletne archiwum ZIP."
++    }
++
++    if ([string]::IsNullOrWhiteSpace($GameDirectory)) {
++        $GameDirectory = Split-Path $packageRoot -Parent
++    }
++
++    if (-not (Test-Path (Join-Path $GameDirectory "eu07.exe") -PathType Leaf)) {
++        $defaultSteamPath = Join-Path ${env:ProgramFiles(x86)} "Steam\steamapps\common\MaSzyna"
++        if (Test-Path (Join-Path $defaultSteamPath "eu07.exe") -PathType Leaf) {
++            $GameDirectory = $defaultSteamPath
++        }
++    }
++
++    if (-not (Test-Path (Join-Path $GameDirectory "eu07.exe") -PathType Leaf)) {
++        throw @"
++Nie znaleziono folderu gry MaSzyna.
++Rozpakuj folder Maszyna-Conductor-Steam bezposrednio do folderu gry albo
++przeciagnij folder gry na install.bat.
++Folder znajdziesz w Steam: Biblioteka > MaSzyna > Zarzadzaj > Przegladaj pliki lokalne.
++"@
++    }
++
++    $GameDirectory = (Resolve-Path $GameDirectory).Path
++    $backupRoot = Join-Path $GameDirectory "conductor_mode_backup"
++    $manifestPath = Join-Path $backupRoot "manifest.tsv"
++    $knownPaths = [System.Collections.Generic.HashSet[string]]::new(
++        [System.StringComparer]::OrdinalIgnoreCase
++    )
++
++    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
++
++    if (Test-Path $manifestPath -PathType Leaf) {
++        foreach ($line in Get-Content $manifestPath) {
++            $parts = $line -split "`t", 2
++            if ($parts.Count -eq 2) {
++                [void]$knownPaths.Add($parts[1])
++            }
++        }
++    }
++
++    Write-Host "Folder gry: $GameDirectory"
++    Write-Host "Tworzenie kopii i instalowanie plikow..."
++
++    foreach ($source in Get-ChildItem $runtimeRoot -File -Recurse) {
++        $relativePath = $source.FullName.Substring($runtimeRoot.Length).TrimStart([char[]]"\/")
++        $destination = Join-Path $GameDirectory $relativePath
++
++        if (-not $knownPaths.Contains($relativePath)) {
++            if (Test-Path $destination -PathType Leaf) {
++                $backup = Join-Path $backupRoot $relativePath
++                New-Item -ItemType Directory -Path (Split-Path $backup -Parent) -Force | Out-Null
++                Copy-Item $destination $backup -Force
++                Add-Content -Path $manifestPath -Value ("RESTORE`t" + $relativePath) -Encoding UTF8
++            } else {
++                Add-Content -Path $manifestPath -Value ("REMOVE`t" + $relativePath) -Encoding UTF8
++            }
++            [void]$knownPaths.Add($relativePath)
++        }
++
++        New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
++        Copy-Item $source.FullName $destination -Force
++    }
++
++    Set-Content -Path (Join-Path $GameDirectory "conductor_mode.installed") `
++        -Value "MaSzyna Conductor Mode" -Encoding ASCII
++
++    Write-Host "Zainstalowano tryb konduktora."
++    exit 0
++} catch {
++    Write-Host "BLAD: $($_.Exception.Message)" -ForegroundColor Red
++    Write-Host "Zamknij MaSzyne i Steam. W razie odmowy dostepu uruchom install.bat jako administrator."
++    exit 1
++}
+diff --git a/packaging/steam/package-windows.ps1 b/packaging/steam/package-windows.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e4964f2fb65849fabebf12e753c4cd407c2e323
+--- /dev/null
++++ b/packaging/steam/package-windows.ps1
+@@ -0,0 +1,50 @@
++param(
++    [Parameter(Mandatory = $true)]
++    [string]$BuildOutput,
++
++    [Parameter(Mandatory = $false)]
++    [string]$OutputDirectory = "$PSScriptRoot\..\..\dist"
++)
++
++$ErrorActionPreference = "Stop"
++
++$buildPath = Resolve-Path $BuildOutput
++$executables = Get-ChildItem -Path $buildPath -Filter "eu07*.exe" -File
++
++if ($executables.Count -ne 1) {
++    throw "Expected exactly one eu07 executable in $buildPath, found $($executables.Count)."
++}
++
++$packageRoot = Join-Path $OutputDirectory "Maszyna-Conductor-Steam"
++$zipPath = Join-Path $OutputDirectory "Maszyna-Conductor-Steam.zip"
++
++if (Test-Path $packageRoot) {
++    Remove-Item -Recurse -Force $packageRoot
++}
++if (Test-Path $zipPath) {
++    Remove-Item -Force $zipPath
++}
++
++New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
++
++$runtimeRoot = Join-Path $packageRoot "Runtime"
++New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
++Copy-Item (Join-Path $buildPath "*") $runtimeRoot -Recurse -Force
++Copy-Item (Join-Path $PSScriptRoot "install.bat") $packageRoot
++Copy-Item (Join-Path $PSScriptRoot "install.ps1") $packageRoot
++Copy-Item (Join-Path $PSScriptRoot "uninstall.bat") $packageRoot
++Copy-Item (Join-Path $PSScriptRoot "uninstall.ps1") $packageRoot
++Copy-Item (Join-Path $PSScriptRoot "README_PL.txt") $packageRoot
++
++$binary = Get-Item (Join-Path $runtimeRoot $executables[0].Name)
++if ($binary.Length -lt 1MB) {
++    throw "Built executable is unexpectedly small: $($binary.Length) bytes."
++}
++
++$hash = Get-FileHash $binary.FullName -Algorithm SHA256
++"$($hash.Hash)  Runtime\$($binary.Name)" | Set-Content -Encoding ascii (Join-Path $packageRoot "SHA256SUM.txt")
++
++Compress-Archive -Path $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
++
++Write-Host "Created package: $zipPath"
++Write-Host "Executable SHA256: $($hash.Hash)"
+diff --git a/packaging/steam/uninstall.bat b/packaging/steam/uninstall.bat
+new file mode 100644
+index 0000000000000000000000000000000000000000..114e13b1c09dd201748edd32f7278ab1243e4009
+--- /dev/null
++++ b/packaging/steam/uninstall.bat
+@@ -0,0 +1,16 @@
++@echo off
++setlocal EnableExtensions
++
++title MaSzyna - usuwanie trybu konduktora
++
++powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1" -GameDirectory "%~1"
++set "RESULT=%ERRORLEVEL%"
++
++echo.
++if "%RESULT%"=="0" (
++    echo Tryb konduktora zostal usuniety, a oryginalne pliki przywrocone.
++) else (
++    echo Odinstalowanie nie zostalo zakonczone. Kod bledu: %RESULT%
++)
++pause
++exit /b %RESULT%
+diff --git a/packaging/steam/uninstall.ps1 b/packaging/steam/uninstall.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..050f78b626646e196f95a01b0e82f5dd3ebd208e
+--- /dev/null
++++ b/packaging/steam/uninstall.ps1
+@@ -0,0 +1,69 @@
++param(
++    [Parameter(Mandatory = $false)]
++    [string]$GameDirectory = ""
++)
++
++$ErrorActionPreference = "Stop"
++
++try {
++    if ([string]::IsNullOrWhiteSpace($GameDirectory)) {
++        $GameDirectory = Split-Path $PSScriptRoot -Parent
++    }
++
++    $backupRoot = Join-Path $GameDirectory "conductor_mode_backup"
++    $manifestPath = Join-Path $backupRoot "manifest.tsv"
++
++    if (-not (Test-Path $manifestPath -PathType Leaf)) {
++        $defaultSteamPath = Join-Path ${env:ProgramFiles(x86)} "Steam\steamapps\common\MaSzyna"
++        $defaultManifest = Join-Path $defaultSteamPath "conductor_mode_backup\manifest.tsv"
++        if (Test-Path $defaultManifest -PathType Leaf) {
++            $GameDirectory = $defaultSteamPath
++            $backupRoot = Join-Path $GameDirectory "conductor_mode_backup"
++            $manifestPath = $defaultManifest
++        }
++    }
++
++    if (-not (Test-Path $manifestPath -PathType Leaf)) {
++        throw @"
++Nie znaleziono kopii utworzonej przez instalator.
++W Steam wybierz: Wlasciwosci > Zainstalowane pliki > Sprawdz spojnosc plikow.
++"@
++    }
++
++    $GameDirectory = (Resolve-Path $GameDirectory).Path
++    Write-Host "Przywracanie plikow w: $GameDirectory"
++
++    foreach ($line in Get-Content $manifestPath) {
++        $parts = $line -split "`t", 2
++        if ($parts.Count -ne 2) {
++            continue
++        }
++
++        $action = $parts[0]
++        $relativePath = $parts[1]
++        $destination = Join-Path $GameDirectory $relativePath
++
++        if ($action -eq "RESTORE") {
++            $backup = Join-Path $backupRoot $relativePath
++            if (-not (Test-Path $backup -PathType Leaf)) {
++                throw "Brakuje kopii pliku: $relativePath"
++            }
++            New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
++            Copy-Item $backup $destination -Force
++        } elseif ($action -eq "REMOVE") {
++            if (Test-Path $destination -PathType Leaf) {
++                Remove-Item $destination -Force
++            }
++        }
++    }
++
++    Remove-Item (Join-Path $GameDirectory "conductor_mode.installed") -Force -ErrorAction SilentlyContinue
++    Remove-Item $backupRoot -Recurse -Force
++
++    Write-Host "Oryginalne pliki zostaly przywrocone."
++    exit 0
++} catch {
++    Write-Host "BLAD: $($_.Exception.Message)" -ForegroundColor Red
++    Write-Host "Zamknij MaSzyne i Steam. W razie odmowy dostepu uruchom uninstall.bat jako administrator."
++    exit 1
++}
+diff --git a/simulation/conductor.cpp b/simulation/conductor.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..df06201d31a6c46d845a3e366f4b9abcf87d40a7
+--- /dev/null
++++ b/simulation/conductor.cpp
+@@ -0,0 +1,267 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#include "stdafx.h"
++#include "simulation/conductor.h"
++
++#include "utilities/Globals.h"
++#include "vehicle/Camera.h"
++#include "vehicle/Driver.h"
++#include "vehicle/DynObj.h"
++#include "vehicle/Train.h"
++
++namespace simulation {
++
++conductor_session Conductor;
++
++void conductor_session::request_ticket_resolution(
++    conductor_duty::ticket_resolution const resolution) {
++    m_requested_resolution = resolution;
++    m_ticket_resolution_requested = true;
++}
++
++void conductor_session::request_door_command(user_command const command) {
++    switch (command) {
++    case user_command::dooropenleft:
++    case user_command::dooropenright:
++    case user_command::doorcloseall:
++        m_door_command = command;
++        break;
++    default:
++        break;
++    }
++}
++
++void conductor_session::update(TTrain *train, TCamera &camera) {
++    if (m_toggle_requested) {
++        m_toggle_requested = false;
++        if (m_active) {
++            deactivate(train == m_train);
++        }
++        else {
++            activate(train, camera);
++        }
++    }
++
++    if (!m_active) {
++        return;
++    }
++
++    if (train == nullptr || train != m_train || train->Dynamic() == nullptr) {
++        deactivate(false);
++        m_status = "Sluzba przerwana: sklad nie jest juz dostepny";
++        return;
++    }
++
++    if (camera.m_owner != train->Dynamic()) {
++        camera.m_owner = train->Dynamic();
++    }
++
++    if (m_seat_toggle_requested) {
++        m_seat_toggle_requested = false;
++        toggle_seat(camera);
++    }
++
++    if (m_departure_signal_requested) {
++        m_departure_signal_requested = false;
++        send_departure_signal();
++    }
++
++    if (m_ticket_inspection_requested) {
++        m_ticket_inspection_requested = false;
++        inspect_ticket();
++    }
++
++    if (m_ticket_resolution_requested) {
++        m_ticket_resolution_requested = false;
++        resolve_ticket();
++    }
++
++    if (m_door_command != user_command::none) {
++        m_relay.post(m_door_command, 0.0, 0.0, GLFW_PRESS, train->id());
++        if (m_door_command == user_command::doorcloseall) {
++            m_status = "Polecenie zamkniecia drzwi zostalo wyslane";
++        }
++        else {
++            m_status = "Polecenie otwarcia drzwi zostalo wyslane";
++        }
++        m_door_command = user_command::none;
++    }
++
++    if (m_seated) {
++        camera.Velocity = {};
++        camera.m_owneroffset = seat_position();
++    }
++    else {
++        camera.m_owneroffset = clamp_inside(camera.m_owneroffset);
++        m_standing_position = camera.m_owneroffset;
++    }
++
++    // The normal cab camera cache is also used by the renderer. Keep it aligned
++    // with the conductor camera so regular camera code does not snap back to cab.
++    train->pMechOffset = camera.m_owneroffset;
++}
++
++bool conductor_session::activate(TTrain *train, TCamera &camera) {
++    if (train == nullptr || train->Dynamic() == nullptr || train->Dynamic()->Mechanik == nullptr) {
++        m_status = "Nie mozna rozpoczac sluzby bez aktywnego skladu";
++        return false;
++    }
++
++    m_train = train;
++    m_active = true;
++    m_seated = false;
++    m_tickets.reset();
++
++    // The player is the conductor; the existing controller remains responsible
++    // for driving the train and obeying the timetable and signals.
++    auto *controller = train->Dynamic()->Mechanik;
++    controller->TakeControl(true);
++    controller->SetManualConductor(true);
++
++    FreeFlyModeFlag = false;
++    camera.Reset();
++    camera.m_owner = train->Dynamic();
++    camera.Velocity = {};
++    camera.m_owneroffset = standing_position();
++    camera.LookAt = camera.m_owner->GetWorldPosition(camera.m_owneroffset)
++                  + camera.m_owner->VectorFront() * 5.0;
++    train->pMechOffset = camera.m_owneroffset;
++    train->pMechSittingPosition = seat_position();
++    train->Dynamic()->bDisplayCab = true;
++
++    m_standing_position = camera.m_owneroffset;
++    m_status = "Sluzba rozpoczeta. Maszynista AI prowadzi pociag";
++    return true;
++}
++
++void conductor_session::deactivate(bool const controller_is_valid) {
++    if (controller_is_valid && m_train != nullptr && m_train->Dynamic() != nullptr
++     && m_train->Dynamic()->Mechanik != nullptr) {
++        m_train->Dynamic()->Mechanik->SetManualConductor(false);
++    }
++
++    m_train = nullptr;
++    m_active = false;
++    m_seated = false;
++    m_seat_toggle_requested = false;
++    m_departure_signal_requested = false;
++    m_ticket_inspection_requested = false;
++    m_ticket_resolution_requested = false;
++    m_door_command = user_command::none;
++    m_status = "Tryb konduktora jest wylaczony";
++}
++
++void conductor_session::toggle_seat(TCamera &camera) {
++    m_seated = !m_seated;
++    camera.Velocity = {};
++    if (m_seated) {
++        m_standing_position = clamp_inside(camera.m_owneroffset);
++        camera.m_owneroffset = seat_position();
++        m_status = "Siedzisz na miejscu konduktora";
++    }
++    else {
++        camera.m_owneroffset = clamp_inside(m_standing_position);
++        m_status = "Wstales z miejsca konduktora";
++    }
++}
++
++void conductor_session::send_departure_signal() {
++    if (m_train == nullptr || m_train->Dynamic() == nullptr
++     || m_train->Dynamic()->Mechanik == nullptr) {
++        m_status = "Brak lacznosci z maszynista";
++        return;
++    }
++
++    switch (m_train->Dynamic()->Mechanik->ConductorReadySignal()) {
++    case conductor_signal_result::accepted:
++        m_status = "Sygnał gotow do odjazdu zostal przekazany maszyniscie";
++        break;
++    case conductor_signal_result::ai_inactive:
++        m_status = "Sygnał odrzucony: pociagu nie prowadzi maszynista AI";
++        break;
++    case conductor_signal_result::train_moving:
++        m_status = "Sygnał odrzucony: pociag jest w ruchu";
++        break;
++    case conductor_signal_result::not_at_passenger_stop:
++        m_status = "Sygnał odrzucony: pociag nie stoi przy peronie";
++        break;
++    case conductor_signal_result::doors_not_secured:
++        m_status = "Sygnał odrzucony: drzwi nie sa zamkniete i zablokowane";
++        break;
++    }
++}
++
++void conductor_session::inspect_ticket() {
++    auto const *current = m_tickets.current();
++    if (current != nullptr && current->resolution == conductor_duty::ticket_resolution::none) {
++        m_status = "Najpierw zakoncz sprawe poprzedniego pasazera";
++        return;
++    }
++
++    auto *passenger = m_tickets.inspect_next();
++    if (passenger == nullptr) {
++        m_status = "Kontrola biletow zostala zakonczona";
++        return;
++    }
++
++    m_status = "Sprawdzono pasazera nr " + std::to_string(passenger->passenger_id);
++}
++
++void conductor_session::resolve_ticket() {
++    if (m_tickets.resolve_current(m_requested_resolution)) {
++        m_status = "Sprawa biletowa zostala zakonczona";
++    }
++    else {
++        m_status = "Najpierw sprawdz bilet pasazera";
++    }
++    m_requested_resolution = conductor_duty::ticket_resolution::none;
++}
++
++glm::dvec3 conductor_session::standing_position() const {
++    if (m_train == nullptr || m_train->Dynamic() == nullptr) {
++        return {};
++    }
++    auto const &dimensions = m_train->Dynamic()->MoverParameters->Dim;
++    return {0.0, std::clamp(0.55 * dimensions.H, 1.55, 1.8), 0.0};
++}
++
++glm::dvec3 conductor_session::seat_position() const {
++    if (m_train == nullptr || m_train->Dynamic() == nullptr) {
++        return {};
++    }
++    auto const &dimensions = m_train->Dynamic()->MoverParameters->Dim;
++    return {
++        dimensions.W * 0.22,
++        std::clamp(0.48 * dimensions.H, 1.35, 1.65),
++        -dimensions.L * 0.32
++    };
++}
++
++glm::dvec3 conductor_session::clamp_inside(glm::dvec3 const &point) const {
++    if (!m_active || m_train == nullptr || m_train->Dynamic() == nullptr || DebugModeFlag) {
++        return point;
++    }
++
++    auto const &dimensions = m_train->Dynamic()->MoverParameters->Dim;
++    if (m_seated) {
++        return seat_position();
++    }
++    auto const eye_height = std::clamp(0.55 * dimensions.H, 1.55, 1.8);
++    return {
++        std::clamp(point.x, -0.40 * dimensions.W, 0.40 * dimensions.W),
++        eye_height,
++        std::clamp(point.z, -0.43 * dimensions.L, 0.43 * dimensions.L)
++    };
++}
++
++std::string conductor_session::train_name() const {
++    return m_train != nullptr && m_train->Dynamic() != nullptr
++        ? m_train->Dynamic()->name()
++        : std::string{};
++}
++
++} // namespace simulation
+diff --git a/simulation/conductor.h b/simulation/conductor.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b4fac593871aa0c9a49d4cf9e6b32b717154d18
+--- /dev/null
++++ b/simulation/conductor.h
+@@ -0,0 +1,70 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#pragma once
++
++#include <string>
++
++#include "input/command.h"
++#include "simulation/conductortickets.h"
++
++class TCamera;
++class TTrain;
++
++namespace simulation {
++
++class conductor_session {
++public:
++    void update(TTrain *train, TCamera &camera);
++
++    void request_toggle() { m_toggle_requested = true; }
++    void request_seat_toggle() { m_seat_toggle_requested = true; }
++    void request_departure_signal() { m_departure_signal_requested = true; }
++    void request_ticket_inspection() { m_ticket_inspection_requested = true; }
++    void request_ticket_resolution(conductor_duty::ticket_resolution resolution);
++    void request_door_command(user_command command);
++
++    bool active() const { return m_active; }
++    bool seated() const { return m_seated; }
++    std::string const &status() const { return m_status; }
++    std::string train_name() const;
++
++    conductor_duty::ticket_round const &tickets() const { return m_tickets; }
++
++    // Constrains a camera-space point to a simple passenger-compartment volume.
++    // This is deliberately data-independent so the prototype works with existing
++    // EN57 assets; per-vehicle walk meshes can replace it later.
++    glm::dvec3 clamp_inside(glm::dvec3 const &point) const;
++
++private:
++    bool activate(TTrain *train, TCamera &camera);
++    void deactivate(bool controller_is_valid = true);
++    void toggle_seat(TCamera &camera);
++    void send_departure_signal();
++    void inspect_ticket();
++    void resolve_ticket();
++    glm::dvec3 standing_position() const;
++    glm::dvec3 seat_position() const;
++
++    TTrain *m_train { nullptr };
++    bool m_active { false };
++    bool m_seated { false };
++    bool m_toggle_requested { false };
++    bool m_seat_toggle_requested { false };
++    bool m_departure_signal_requested { false };
++    bool m_ticket_inspection_requested { false };
++    bool m_ticket_resolution_requested { false };
++    conductor_duty::ticket_resolution m_requested_resolution { conductor_duty::ticket_resolution::none };
++    user_command m_door_command { user_command::none };
++    glm::dvec3 m_standing_position {};
++    std::string m_status { "Tryb konduktora jest wylaczony" };
++    conductor_duty::ticket_round m_tickets;
++    command_relay m_relay;
++};
++
++extern conductor_session Conductor;
++
++} // namespace simulation
+diff --git a/simulation/conductortickets.cpp b/simulation/conductortickets.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..58cd5c2eedb30e6da21de31fbf1c11bf7869bd2e
+--- /dev/null
++++ b/simulation/conductortickets.cpp
+@@ -0,0 +1,120 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#include "simulation/conductortickets.h"
++
++#include <algorithm>
++#include <iterator>
++
++namespace conductor_duty {
++
++void ticket_round::reset(std::size_t const passenger_count) {
++    m_passengers.clear();
++    m_passengers.reserve(passenger_count);
++    m_current.reset();
++    m_score = 0;
++
++    // Stable distribution makes duties reproducible and easy to test. Most
++    // passengers have valid tickets; every few passengers create a gameplay case.
++    constexpr ticket_state pattern[] = {
++        ticket_state::valid,
++        ticket_state::valid,
++        ticket_state::missing,
++        ticket_state::valid,
++        ticket_state::discount_without_document,
++        ticket_state::valid,
++        ticket_state::wrong_train,
++        ticket_state::valid
++    };
++
++    for (std::size_t index = 0; index < passenger_count; ++index) {
++        m_passengers.push_back({
++            static_cast<int>(index + 1),
++            static_cast<int>(index + 1),
++            pattern[index % std::size(pattern)],
++            ticket_resolution::none,
++            false
++        });
++    }
++}
++
++passenger_ticket *ticket_round::inspect_next() {
++    if (m_current && *m_current < m_passengers.size()
++     && m_passengers[*m_current].resolution == ticket_resolution::none) {
++        return &m_passengers[*m_current];
++    }
++
++    auto const lookup = std::find_if(
++        m_passengers.begin(), m_passengers.end(),
++        [](passenger_ticket const &passenger) { return !passenger.inspected; });
++
++    if (lookup == m_passengers.end()) {
++        m_current.reset();
++        return nullptr;
++    }
++
++    lookup->inspected = true;
++    m_current = static_cast<std::size_t>(std::distance(m_passengers.begin(), lookup));
++
++    if (lookup->state == ticket_state::valid) {
++        lookup->resolution = ticket_resolution::accepted;
++        ++m_score;
++    }
++
++    return &*lookup;
++}
++
++bool ticket_round::resolve_current(ticket_resolution const resolution) {
++    if (!m_current || *m_current >= m_passengers.size()) {
++        return false;
++    }
++
++    auto &passenger = m_passengers[*m_current];
++    if (!passenger.inspected || passenger.resolution != ticket_resolution::none) {
++        return false;
++    }
++
++    switch (resolution) {
++    case ticket_resolution::fare_issued:
++        m_score += passenger.state == ticket_state::missing ? 2 : 1;
++        break;
++    case ticket_resolution::penalty_issued:
++        m_score += 3;
++        break;
++    case ticket_resolution::ignored:
++        m_score -= 2;
++        break;
++    default:
++        return false;
++    }
++
++    passenger.resolution = resolution;
++    return true;
++}
++
++passenger_ticket const *ticket_round::current() const {
++    return m_current && *m_current < m_passengers.size() ? &m_passengers[*m_current] : nullptr;
++}
++
++std::size_t ticket_round::inspected_count() const {
++    return static_cast<std::size_t>(std::count_if(
++        m_passengers.begin(), m_passengers.end(),
++        [](passenger_ticket const &passenger) { return passenger.inspected; }));
++}
++
++std::size_t ticket_round::resolved_count() const {
++    return static_cast<std::size_t>(std::count_if(
++        m_passengers.begin(), m_passengers.end(),
++        [](passenger_ticket const &passenger) {
++            return passenger.resolution != ticket_resolution::none;
++        }));
++}
++
++bool ticket_round::complete() const {
++    return !m_passengers.empty() && resolved_count() == m_passengers.size();
++}
++
++} // namespace conductor_duty
+diff --git a/simulation/conductortickets.h b/simulation/conductortickets.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..1661de54b743fc79f159c6c3802b1f9094d8972a
+--- /dev/null
++++ b/simulation/conductortickets.h
+@@ -0,0 +1,61 @@
++/*
++This Source Code Form is subject to the terms of the Mozilla Public License, v.
++2.0. If a copy of the MPL was not distributed with this file, You can obtain one
++at http://mozilla.org/MPL/2.0/.
++*/
++
++#pragma once
++
++#include <cstddef>
++#include <optional>
++#include <vector>
++
++namespace conductor_duty {
++
++enum class ticket_state {
++    valid,
++    missing,
++    wrong_train,
++    discount_without_document
++};
++
++enum class ticket_resolution {
++    none,
++    accepted,
++    fare_issued,
++    penalty_issued,
++    ignored
++};
++
++struct passenger_ticket {
++    int passenger_id { 0 };
++    int seat_number { 0 };
++    ticket_state state { ticket_state::valid };
++    ticket_resolution resolution { ticket_resolution::none };
++    bool inspected { false };
++};
++
++// Small, deterministic gameplay model used by the conductor prototype. Visual
++// passenger actors can be bound to these records without changing ticket rules.
++class ticket_round {
++public:
++    void reset(std::size_t passenger_count = 12);
++
++    passenger_ticket *inspect_next();
++    bool resolve_current(ticket_resolution resolution);
++
++    passenger_ticket const *current() const;
++    std::vector<passenger_ticket> const &passengers() const { return m_passengers; }
++
++    std::size_t inspected_count() const;
++    std::size_t resolved_count() const;
++    bool complete() const;
++    int score() const { return m_score; }
++
++private:
++    std::vector<passenger_ticket> m_passengers;
++    std::optional<std::size_t> m_current;
++    int m_score { 0 };
++};
++
++} // namespace conductor_duty
+diff --git a/tests/conductortickets_test.cpp b/tests/conductortickets_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7189b98587ad7cacdde5965b96c3ef00d7562cd3
+--- /dev/null
++++ b/tests/conductortickets_test.cpp
+@@ -0,0 +1,44 @@
++#include "simulation/conductortickets.h"
++
++#include <cassert>
++
++int main() {
++    conductor_duty::ticket_round round;
++    round.reset(8);
++
++    assert(round.passengers().size() == 8);
++    assert(round.score() == 0);
++
++    auto *first = round.inspect_next();
++    assert(first != nullptr);
++    assert(first->state == conductor_duty::ticket_state::valid);
++    assert(first->resolution == conductor_duty::ticket_resolution::accepted);
++    assert(round.score() == 1);
++
++    auto *second = round.inspect_next();
++    assert(second != nullptr);
++    assert(second->state == conductor_duty::ticket_state::valid);
++
++    auto *third = round.inspect_next();
++    assert(third != nullptr);
++    assert(third->state == conductor_duty::ticket_state::missing);
++    assert(third->resolution == conductor_duty::ticket_resolution::none);
++    assert(round.inspect_next() == third);
++    assert(round.resolve_current(conductor_duty::ticket_resolution::fare_issued));
++    assert(round.score() == 4);
++
++    while (!round.complete()) {
++        auto *passenger = round.inspect_next();
++        if (passenger == nullptr) {
++            break;
++        }
++        if (passenger->resolution == conductor_duty::ticket_resolution::none) {
++            assert(round.resolve_current(conductor_duty::ticket_resolution::penalty_issued));
++        }
++    }
++
++    assert(round.complete());
++    assert(round.inspected_count() == 8);
++    assert(round.resolved_count() == 8);
++    return 0;
++}
+diff --git a/vehicle/Driver.cpp b/vehicle/Driver.cpp
+index 1552ead74b9cc1c92276320deea6a4d81853b155..e706125b78a45593a3e4f8478ff40c465ad3e7b6 100644
+--- a/vehicle/Driver.cpp
++++ b/vehicle/Driver.cpp
+@@ -1272,9 +1272,13 @@ TController::TableUpdateStopPoint( TCommandType &Command, TSpeedPos &Point, doub
+ 
+                 if (TrainParams.StationIndex < TrainParams.StationCount) {
+                     // jeśli są dalsze stacje, czekamy do godziny odjazdu
++                    auto const departuretime = TrainParams.IsTimeToGo(
++                        simulation::Time.data().wHour,
++                        simulation::Time.data().wMinute + simulation::Time.data().wSecond * 0.0167);
++                    auto const conductorauthorized = false == m_manualconductor || true == m_conductorready;
+                     if ( true == IsCargoTrain
+                       || true == TrainParams.IsMaintenance()
+-                      || TrainParams.IsTimeToGo(simulation::Time.data().wHour, simulation::Time.data().wMinute + simulation::Time.data().wSecond * 0.0167) ) {
++                      || ( departuretime && conductorauthorized ) ) {
+                         // z dalszą akcją czekamy do godziny odjazdu
+                         // cargo trains and passenger trains at maintenance stop don't need to wait
+                         IsAtPassengerStop = false;
+@@ -1310,10 +1314,11 @@ TController::TableUpdateStopPoint( TCommandType &Command, TSpeedPos &Point, doub
+                         if( Command == TCommandType::cm_Unknown ) { // jeśli nie było komendy wcześniej
+                             Command = TCommandType::cm_Ready; // gotów do odjazdu z W4 (semafor może zatrzymać)
+                         }
+-                        if( false == tsGuardSignal.empty() ) {
++                        if( false == m_manualconductor && false == tsGuardSignal.empty() ) {
+                             // jeśli mamy głos kierownika, to odegrać
+                             iDrivigFlags |= moveGuardSignal;
+                         }
++                        m_conductorready = false;
+                         return true; // nie analizować prędkości
+                     } // koniec startu z zatrzymania
+ 					else {
+@@ -5670,6 +5675,35 @@ void TController::TakeControl( bool const Aidriver, bool const Forcevehiclecheck
+     }
+ };
+ 
++void TController::SetManualConductor(bool const enabled) {
++    m_manualconductor = enabled;
++    m_conductorready = false;
++    if (enabled) {
++        // A virtual guard signal left over from regular AI operation must not
++        // authorize a departure after the player takes the conductor role.
++        iDrivigFlags &= ~moveGuardSignal;
++    }
++}
++
++conductor_signal_result TController::ConductorReadySignal() {
++    if (!AIControllFlag) {
++        return conductor_signal_result::ai_inactive;
++    }
++    if (std::abs(mvOccupied->Vel) >= EU07_AI_NOMOVEMENT) {
++        return conductor_signal_result::train_moving;
++    }
++    if (!IsAtPassengerStop) {
++        return conductor_signal_result::not_at_passenger_stop;
++    }
++    if (doors_open() || doors_permit_active()) {
++        return conductor_signal_result::doors_not_secured;
++    }
++
++    m_conductorready = true;
++    iDrivigFlags |= moveGuardSignal;
++    return conductor_signal_result::accepted;
++}
++
+ void TController::DirectionForward(bool forward)
+ { // ustawienie jazdy do przodu dla true i do tyłu dla false (zależy od kabiny)
+     ZeroSpeed( true ); // TODO: check if force switch is needed anymore here
+diff --git a/vehicle/Driver.h b/vehicle/Driver.h
+index e7c4fac00ab7d91e7e2da5e821ab6fd6a863a440..e800254575b438332a9f7134f524d20c17a5d03c 100644
+--- a/vehicle/Driver.h
++++ b/vehicle/Driver.h
+@@ -124,6 +124,14 @@ enum class TAction : int
+     actTrial // próba hamulca (na postoju)
+ };
+ 
++enum class conductor_signal_result {
++    accepted,
++    ai_inactive,
++    train_moving,
++    not_at_passenger_stop,
++    doors_not_secured
++};
++
+ enum TSpeedPosFlag
+ { // wartości dla iFlag w TSpeedPos
+     spNone = 0x0,
+@@ -364,8 +372,13 @@ private:
+     void remove_master_controller_hints();
+     void remove_reverser_hints();
+     void cue_action( driver_hint const Action, float const Actionparameter = 0.f );
++    // Enables a human conductor to gate timetable departures while the existing
++    // AI controller keeps driving the consist.
+ // members
+ public:
++    void SetManualConductor(bool enabled);
++    bool ManualConductor() const { return m_manualconductor; }
++    conductor_signal_result ConductorReadySignal();
+     bool AIControllFlag = false; // rzeczywisty/wirtualny maszynista
+     int iOverheadZero = 0; // suma bitowa jezdy bezprądowej, bity ustawiane przez pojazdy z podniesionymi pantografami
+     int iOverheadDown = 0; // suma bitowa opuszczenia pantografów, bity ustawiane przez pojazdy z podniesionymi pantografami
+@@ -574,6 +587,8 @@ private:
+     sound_source tsGuardSignal{ sound_placement::internal };
+     announcement_t m_lastannouncement{ announcement_t::idle };
+     bool m_makenextstopannouncement{ false };
++    bool m_manualconductor{ false };
++    bool m_conductorready{ false };
+ 
+ // consist
+ // methods
